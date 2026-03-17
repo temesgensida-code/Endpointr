@@ -1,7 +1,6 @@
 import json
 
 import httpx
-from Authentication.auth import clerk_auth_required
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
@@ -12,7 +11,6 @@ ALLOWED_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"}
 
 @csrf_exempt
 @require_POST
-@clerk_auth_required
 def send_api_request(request):
 	try:
 		payload = json.loads(request.body or "{}")

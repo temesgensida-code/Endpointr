@@ -1,8 +1,11 @@
 from django.urls import path
 
-from .views import auth_health, validate_token
+from .views import forgot_password, reset_password, signin, signup, validate_token
 
 urlpatterns = [
-    path("health/", auth_health, name="auth-health"),
-    path("validate-token/", validate_token, name="validate-token"),
+	path("signup/", signup, name="auth-signup"),
+	path("signin/", signin, name="auth-signin"),
+	path("forgot-password/", forgot_password, name="auth-forgot-password"),
+	path("reset-password/", reset_password, name="auth-reset-password"),
+	path("validate-token/", validate_token, name="auth-validate-token"),
 ]

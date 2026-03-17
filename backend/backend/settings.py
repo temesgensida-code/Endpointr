@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -118,3 +119,11 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+
+# Clerk configuration
+CLERK_API_BASE_URL = os.environ.get('CLERK_API_BASE_URL', 'https://api.clerk.com')
+CLERK_SECRET_KEY = os.environ.get('CLERK_SECRET_KEY', '')
+CLERK_JWT_ISSUER = os.environ.get('CLERK_JWT_ISSUER', '')
+CLERK_JWT_AUDIENCE = os.environ.get('CLERK_JWT_AUDIENCE', '')
+CLERK_JWKS_URL = os.environ.get('CLERK_JWKS_URL', '')
