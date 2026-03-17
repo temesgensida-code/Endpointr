@@ -13,8 +13,12 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+load_dotenv(BASE_DIR / '.env')
 
 
 # Quick-start development settings - unsuitable for production
@@ -38,6 +42,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'corsheaders',
     'API_request',
     'AI_handler',
     'Authentication',
@@ -45,6 +50,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -127,3 +133,10 @@ CLERK_SECRET_KEY = os.environ.get('CLERK_SECRET_KEY', '')
 CLERK_JWT_ISSUER = os.environ.get('CLERK_JWT_ISSUER', '')
 CLERK_JWT_AUDIENCE = os.environ.get('CLERK_JWT_AUDIENCE', '')
 CLERK_JWKS_URL = os.environ.get('CLERK_JWKS_URL', '')
+
+
+# CORS (frontend -> backend API)
+CORS_ALLOWED_ORIGINS = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+]
