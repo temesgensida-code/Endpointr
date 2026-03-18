@@ -64,10 +64,9 @@ function SignedOutPanel() {
 
   return (
     <section className="card">
-      <h1>Authentication</h1>
-      <p>Official Clerk components with app-level provider wrapping.</p>
-
-      <div className="switch-row">
+      {/* <h1>Authentication</h1> */}
+      
+      {/* <div className="switch-row">
         <button
           type="button"
           className={mode === 'sign-in' ? 'active' : ''}
@@ -82,7 +81,7 @@ function SignedOutPanel() {
         >
           Sign Up
         </button>
-      </div>
+      </div> */}
 
       {mode === 'sign-in' ? <SignIn routing="hash" /> : <SignUp routing="hash" />}
     </section>
