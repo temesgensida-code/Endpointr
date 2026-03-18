@@ -13,7 +13,7 @@
   max-width: 720px;
   border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 20px;
+  padding-top: 10px;
   padding-left:10%;
   padding-right:10%;
   box-sizing: border-box;
