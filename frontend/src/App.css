@@ -75,12 +75,18 @@
   width: 100%;
   max-width: none;
   min-height: 100svh;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  grid-template-rows: auto 1fr;
+  display: flex;
+  flex-direction: column;
   /* gap: 16px; */
   padding: 6px;
   box-sizing: border-box;
+}
+
+.content-row {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  --resizer-width: 2px;
 }
 
 .box {
@@ -90,6 +96,9 @@
   padding: 3px;
   box-sizing: border-box;
   text-align: left;
+  overflow: auto;
+  margin: 0;
+
 }
 
 .navbar-box {
@@ -110,10 +119,24 @@
 
 .content-box {
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
   justify-content: flex-start;
+  margin: 0;
+  padding:2px;
+}
+
+.resizer {
+  /* background: var(--border); */
+  cursor: col-resize;
+  user-select: none;
+  touch-action: none;
+  width: var(--resizer-width);
+}
+
+.resizer:hover {
+  background: var(--accent-border);
 }
 
 .content-box h2 {
