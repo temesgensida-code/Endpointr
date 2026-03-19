@@ -43,18 +43,25 @@ function SignedInPanel() {
   }
 
   return (
-    <section className="card">
-      <div className="header-row">
-        <h1>You are signed in</h1>
+    <section className="dashboard">
+      <div className="box navbar-box">
+        <div className="navbar-title">Navbar</div>
         <UserButton />
       </div>
-      <p>Clerk user id: <code>{userId}</code></p>
 
-      <button type="button" onClick={validateBackendToken} disabled={loading}>
-        {loading ? 'Validating...' : 'Validate token with Django'}
-      </button>
+      <div className="box content-box">
+       
 
-      {result ? <pre className="result">{result}</pre> : null}
+      </div>
+
+      <div className="box content-box">
+    
+      </div>
+
+      <div className="box content-box">
+      
+        
+      </div>
     </section>
   )
 }
@@ -92,7 +99,7 @@ function App() {
   const { isSignedIn } = useAuth()
 
   return (
-    <main className="layout">
+    <main className={isSignedIn ? 'layout dashboard-layout' : 'layout'}>
       {isSignedIn ? <SignedInPanel /> : <SignedOutPanel />}
     </main>
   )

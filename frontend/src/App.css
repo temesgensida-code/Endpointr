@@ -4,15 +4,22 @@
   align-items: flex-start;
   width: 100%;
   min-height: 100%;
-  padding: 40px 16px;
   box-sizing: border-box;
+}
+#root {
+  width: 100%;
+}
+.dashboard-layout {
+  align-items: stretch;
+  justify-content: stretch;
+  min-height: 100svh;
 }
 
 .card {
   width: 100%;
   max-width: 720px;
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 4px;
   padding-top: 10px;
   padding-left:10%;
   padding-right:10%;
@@ -62,4 +69,53 @@
 
 .card code {
   font-size: 14px;
+}
+
+.dashboard {
+  width: 100%;
+  max-width: none;
+  min-height: 100svh;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: auto 1fr;
+  /* gap: 16px; */
+  padding: 6px;
+  box-sizing: border-box;
+}
+
+.box {
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  background: var(--bg);
+  padding: 3px;
+  box-sizing: border-box;
+  text-align: left;
+}
+
+.navbar-box {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 52px;
+  border-radius: 1px;
+
+}
+
+.navbar-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.content-box {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  justify-content: flex-start;
+}
+
+.content-box h2 {
+  margin: 0;
 }
