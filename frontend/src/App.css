@@ -48,7 +48,7 @@
   padding: 10px 12px;
   font: inherit;
   color: #fff;
-  background: var(--accent);
+  background: black;
   cursor: pointer;
 }
 
@@ -141,4 +141,7 @@
 
 .content-box h2 {
   margin: 0;
+}
+#box1 {
+  width:100%;
 }

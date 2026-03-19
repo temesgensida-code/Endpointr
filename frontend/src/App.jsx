@@ -9,7 +9,8 @@ function SignedInPanel() {
   const { getToken, userId } = useAuth()
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState('')
-  const [panelWidths, setPanelWidths] = useState([34, 33, 33])
+  const [panelWidths, setPanelWidths] = useState([25, 50, 25])
+  // const [panelWidths, setPanelWidths] = useState([34, 33, 33])
   const rowRef = useRef(null)
 
   async function validateBackendToken() {
@@ -107,7 +108,7 @@ function SignedInPanel() {
           gridTemplateColumns: `${panelWidths[0]}% var(--resizer-width) ${panelWidths[1]}% var(--resizer-width) ${panelWidths[2]}%`,
         }}
       >
-        <div className="box content-box">
+        <div className="box content-box" id='box1'>
           <h2>Box 1</h2>
           <p>Clerk user id: <code>{userId}</code></p>
         </div>
@@ -120,7 +121,7 @@ function SignedInPanel() {
           onPointerDown={(event) => startResize(0, event)}
         />
 
-        <div className="box content-box">
+        <div className="box content-box" id='box2'>
           <h2>Box 2</h2>
           <button type="button" onClick={validateBackendToken} disabled={loading}>
             {loading ? 'Validating...' : 'Validate token with Django'}
@@ -135,7 +136,7 @@ function SignedInPanel() {
           onPointerDown={(event) => startResize(1, event)}
         />
 
-        <div className="box content-box">
+        <div className="box content-box" id='box3'>
           <h2>Box 3</h2>
           {result ? <pre className="result">{result}</pre> : <p>Validation result will appear here.</p>}
         </div>
