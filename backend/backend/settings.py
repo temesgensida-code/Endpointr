@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'API_request',
     'AI_handler',
     'Authentication',
+    'users',
 ]
 
 MIDDLEWARE = [
