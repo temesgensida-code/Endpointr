@@ -38,19 +38,24 @@ def validate_clerk_token(token):
 	return jwt.decode(**decode_kwargs)
 
 
+def authenticate_clerk_request(request):
+	token = _extract_bearer_token(request)
+	if not token:
+		raise ValueError("Missing Bearer token.")
+
+	claims = validate_clerk_token(token)
+	request.clerk_claims = claims
+	return claims
+
+
 def clerk_token_required(view_func):
 	@wraps(view_func)
 	def _wrapped(request, *args, **kwargs):
-		token = _extract_bearer_token(request)
-		if not token:
-			return JsonResponse({"error": "Missing Bearer token."}, status=401)
-
 		try:
-			claims = validate_clerk_token(token)
+			authenticate_clerk_request(request)
 		except Exception as exc:
 			return JsonResponse({"error": "Invalid token.", "details": str(exc)}, status=401)
 
-		request.clerk_claims = claims
 		return view_func(request, *args, **kwargs)
 
 	return _wrapped

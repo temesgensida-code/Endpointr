@@ -131,6 +131,7 @@ STATIC_URL = 'static/'
 CLERK_JWT_ISSUER = os.environ.get('CLERK_JWT_ISSUER', '')
 CLERK_JWT_AUDIENCE = os.environ.get('CLERK_JWT_AUDIENCE', '')
 CLERK_JWKS_URL = os.environ.get('CLERK_JWKS_URL', '')
+API_PROXY_REQUIRE_AUTH = os.environ.get('API_PROXY_REQUIRE_AUTH', '').lower() in ('1', 'true', 'yes')
 
 
 # CORS (frontend -> backend API)
