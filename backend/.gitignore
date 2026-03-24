@@ -1,4 +1,5 @@
 ./env
+# Local secrets (Gemini/Clerk keys)
 .env
 .env.*
 !.env.example
