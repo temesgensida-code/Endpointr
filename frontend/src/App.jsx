@@ -11,12 +11,72 @@ function SignedInPanel() {
   const [proxyLoading, setProxyLoading] = useState(false)
   const [proxyResult, setProxyResult] = useState('')
   const [proxyError, setProxyError] = useState('')
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState('')
+  const [historyItems, setHistoryItems] = useState([])
+  const [storyOpen, setStoryOpen] = useState(false)
+  const [expandedHistoryIds, setExpandedHistoryIds] = useState({})
   const [requestMethod, setRequestMethod] = useState('GET')
   const [requestUrl, setRequestUrl] = useState('')
   const [requestJsonBody, setRequestJsonBody] = useState('{\n  \n}')
   //if you wanna modify the boxes default width you can change the values in this array, just make sure they add up to 100
   const [panelWidths, setPanelWidths] = useState([25, 50, 25])
   const rowRef = useRef(null)
+
+  async function loadRequestHistory() {
+    setHistoryLoading(true)
+    setHistoryError('')
+
+    try {
+      const token = await getToken()
+      const params = new URLSearchParams()
+      if (userId) {
+        params.set('client_user_id', userId)
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api-request/history/?${params.toString()}`, {
+        method: 'GET',
+        headers: token
+          ? {
+              Authorization: `Bearer ${token}`,
+            }
+          : {},
+      })
+
+      const payload = await response.json()
+      if (!response.ok) {
+        const details = payload?.details ? ` (${payload.details})` : ''
+        const message = payload?.error
+          ? `${payload.error}${details}`
+          : `History request failed with status ${response.status}`
+        setHistoryError(message)
+        setHistoryItems([])
+        return
+      }
+
+      setHistoryItems(payload?.history || [])
+    } catch (error) {
+      setHistoryError(error.message || 'Could not load story history.')
+      setHistoryItems([])
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
+  function toggleStoryPanel() {
+    const nextOpen = !storyOpen
+    setStoryOpen(nextOpen)
+    if (nextOpen) {
+      loadRequestHistory()
+    }
+  }
+
+  function toggleHistoryItem(itemId) {
+    setExpandedHistoryIds((prev) => ({
+      ...prev,
+      [itemId]: !prev[itemId],
+    }))
+  }
 
   async function sendProxyRequest() {
     setProxyLoading(true)
@@ -59,6 +119,7 @@ function SignedInPanel() {
         body: JSON.stringify({
           method: requestMethod,
           url: trimmedUrl,
+          client_user_id: userId,
           ...(methodAllowsBody && parsedBody !== undefined ? { json: parsedBody } : {}),
         }),
       })
@@ -78,6 +139,9 @@ function SignedInPanel() {
       setProxyError(error.message || 'Request failed.')
     } finally {
       setProxyLoading(false)
+      if (storyOpen) {
+        loadRequestHistory()
+      }
     }
   }
 
@@ -144,6 +208,56 @@ function SignedInPanel() {
         }}
       >
         <div className="box content-box" id='box1'>
+          <h2>Story</h2>
+          <button type="button" className="story-toggle" onClick={toggleStoryPanel}>
+            {storyOpen ? 'Hide Story' : 'Show Story'}
+          </button>
+
+          {storyOpen ? (
+            <div className="history-panel">
+              {historyLoading ? <p>Loading recent requests...</p> : null}
+              {historyError ? <p className="request-error">{historyError}</p> : null}
+
+              {!historyLoading && !historyError && historyItems.length === 0 ? (
+                <p>No request story yet.</p>
+              ) : null}
+
+              {!historyLoading && !historyError ? (
+                <div className="history-list">
+                  {historyItems.map((item) => {
+                    const expanded = !!expandedHistoryIds[item.id]
+                    return (
+                      <div key={item.id} className="history-item">
+                        <div className="history-item-header">
+                          <div className="history-item-main">
+                            <p className="history-item-id">ID: {item.id}</p>
+                            <p className="history-item-url">{item.requested_url}</p>
+                          </div>
+                          <button
+                            type="button"
+                            className="history-expand-btn"
+                            onClick={() => toggleHistoryItem(item.id)}
+                            aria-expanded={expanded}
+                            aria-label={`Read more for request ${item.id}`}
+                          >
+                            {expanded ? 'v' : '>'}
+                          </button>
+                        </div>
+
+                        {expanded ? (
+                          <div className="history-item-body">
+                            <p>Method: {item.method}</p>
+                            <p>Status: {item.response_status_code ?? 'N/A'}</p>
+                            <pre className="result">{JSON.stringify(item.response, null, 2)}</pre>
+                          </div>
+                        ) : null}
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
         </div>
 
