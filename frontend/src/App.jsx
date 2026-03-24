@@ -19,6 +19,15 @@ function SignedInPanel() {
   const [requestMethod, setRequestMethod] = useState('GET')
   const [requestUrl, setRequestUrl] = useState('')
   const [requestJsonBody, setRequestJsonBody] = useState('{\n  \n}')
+  const [chatLoading, setChatLoading] = useState(false)
+  const [chatInput, setChatInput] = useState('')
+  const [chatMessages, setChatMessages] = useState([
+    {
+      role: 'assistant',
+      content:
+        'I can help debug your API calls using your recent request/response history and general FastAPI, Django REST API, and React API-client guidance.',
+    },
+  ])
   //if you wanna modify the boxes default width you can change the values in this array, just make sure they add up to 100
   const [panelWidths, setPanelWidths] = useState([25, 50, 25])
   const rowRef = useRef(null)
@@ -142,6 +151,57 @@ function SignedInPanel() {
       if (storyOpen) {
         loadRequestHistory()
       }
+    }
+  }
+
+  async function sendChatMessage() {
+    const question = chatInput.trim()
+    if (!question) {
+      return
+    }
+
+    const userMessage = { role: 'user', content: question }
+    setChatMessages((prev) => [...prev, userMessage])
+    setChatInput('')
+    setChatLoading(true)
+
+    try {
+      const token = await getToken()
+      const response = await fetch(`${API_BASE_URL}/ai/chat/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          message: question,
+          client_user_id: userId,
+        }),
+      })
+
+      const payload = await response.json()
+      if (!response.ok) {
+        const details = payload?.details ? ` (${payload.details})` : ''
+        const message = payload?.error
+          ? `${payload.error}${details}`
+          : `Chat request failed with status ${response.status}`
+        setChatMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: `I could not answer right now: ${message}` },
+        ])
+        return
+      }
+
+      const answer = payload?.answer || 'I could not generate a response.'
+      const contextIds = Array.isArray(payload?.context_request_ids) ? payload.context_request_ids : []
+      setChatMessages((prev) => [...prev, { role: 'assistant', content: answer, contextIds }])
+    } catch (error) {
+      setChatMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: `I could not answer right now: ${error.message || 'Unknown error.'}` },
+      ])
+    } finally {
+      setChatLoading(false)
     }
   }
 
@@ -324,8 +384,38 @@ function SignedInPanel() {
         />
 
         <div className="box content-box" id='box3'>
-          <h2>Box 3</h2>
-          
+          <h2>AI Chatbot</h2>
+
+          <div className="chat-window">
+            {chatMessages.map((msg, idx) => (
+              <div key={`${msg.role}-${idx}`} className={`chat-message ${msg.role === 'user' ? 'chat-user' : 'chat-assistant'}`}>
+                <p className="chat-role">{msg.role === 'user' ? 'You' : 'Assistant'}</p>
+                <p className="chat-content">{msg.content}</p>
+                {msg.role === 'assistant' && Array.isArray(msg.contextIds) && msg.contextIds.length > 0 ? (
+                  <div className="chat-citations">
+                    <p className="chat-citations-label">Sources:</p>
+                    <div className="chat-citation-list">
+                      {msg.contextIds.map((id) => (
+                        <span key={`${idx}-src-${id}`} className="chat-citation-chip">Request #{id}</span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+
+          <textarea
+            className="request-control chat-input"
+            placeholder="Ask about your API responses, endpoint errors, or debugging strategies..."
+            value={chatInput}
+            onChange={(event) => setChatInput(event.target.value)}
+            spellCheck={false}
+          />
+
+          <button type="button" onClick={sendChatMessage} disabled={chatLoading}>
+            {chatLoading ? 'Thinking...' : 'Ask AI'}
+          </button>
         </div>
       </div>
     </section>
