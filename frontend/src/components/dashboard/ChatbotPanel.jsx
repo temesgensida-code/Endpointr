@@ -1,3 +1,25 @@
+import ReactMarkdown from 'react-markdown'
+
+function toSafeText(value) {
+  if (typeof value === 'string') {
+    return value
+  }
+
+  if (value === null || value === undefined) {
+    return ''
+  }
+
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value, null, 2)
+    } catch {
+      return String(value)
+    }
+  }
+
+  return String(value)
+}
+
 export default function ChatbotPanel({
   chatMessages,
   chatInput,
@@ -16,7 +38,13 @@ export default function ChatbotPanel({
             className={`chat-message ${msg.role === 'user' ? 'chat-user' : 'chat-assistant'}`}
           >
             <p className="chat-role">{msg.role === 'user' ? 'You' : 'Assistant'}</p>
-            <p className="chat-content">{msg.content}</p>
+            {msg.role === 'assistant' ? (
+              <div className="chat-content markdown-content">
+                <ReactMarkdown>{toSafeText(msg.content)}</ReactMarkdown>
+              </div>
+            ) : (
+              <p className="chat-content">{toSafeText(msg.content)}</p>
+            )}
             {msg.role === 'assistant' && Array.isArray(msg.contextIds) && msg.contextIds.length > 0 ? (
               <div className="chat-citations">
                 <p className="chat-citations-label">Sources:</p>
