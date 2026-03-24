@@ -134,6 +134,10 @@ CLERK_JWT_AUDIENCE = os.environ.get('CLERK_JWT_AUDIENCE', '')
 CLERK_JWKS_URL = os.environ.get('CLERK_JWKS_URL', '')
 API_PROXY_REQUIRE_AUTH = os.environ.get('API_PROXY_REQUIRE_AUTH', '').lower() in ('1', 'true', 'yes')
 
+# Gemini LLM configuration
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')
+
 
 # CORS (frontend -> backend API)
 CORS_ALLOWED_ORIGINS = [
