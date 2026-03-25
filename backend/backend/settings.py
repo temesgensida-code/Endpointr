@@ -137,6 +137,7 @@ API_PROXY_REQUIRE_AUTH = os.environ.get('API_PROXY_REQUIRE_AUTH', '').lower() in
 # Gemini LLM configuration
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')
+CHAT_MEMORY_TURNS = int(os.environ.get('CHAT_MEMORY_TURNS', '12'))
 
 
 # CORS (frontend -> backend API)

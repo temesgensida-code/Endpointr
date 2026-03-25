@@ -1,16 +1,19 @@
 import json
 
-import httpx
 from django.conf import settings
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_google_genai import ChatGoogleGenerativeAI
 
+from AI_handler.models import ChatTurn
 from API_request.models import RequestHistory
 from Authentication.decorators import authenticate_clerk_request
 
 
 GEMINI_MODEL = "gemini-2.5-flash"
+DEFAULT_MEMORY_TURNS = 12
 
 RAG_GUIDE_SNIPPETS = [
 	{
@@ -117,38 +120,46 @@ def _build_rag_prompt(question, history_items):
 	return json.dumps(prompt, ensure_ascii=False)
 
 
-def _call_gemini(model, api_key, rag_prompt):
-	endpoint = (
-		f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-		f"?key={api_key}"
+def _system_instruction(rag_prompt):
+	return (
+		"You are an API debugging assistant focused on FastAPI, Django REST API patterns, and React clients. "
+		"Use the retrieved context and prior turns to answer. If unsure, state assumptions clearly. "
+		"Retrieved RAG context (JSON):\n"
+		f"{rag_prompt}"
 	)
 
-	payload = {
-		"contents": [
-			{
-				"role": "user",
-				"parts": [{"text": rag_prompt}],
-			}
-		],
-		"generationConfig": {
-			"temperature": 0.3,
-			"topP": 0.9,
-			"maxOutputTokens": 1024,
-		},
-	}
 
-	response = httpx.post(endpoint, json=payload, timeout=35)
-	response.raise_for_status()
-	data = response.json()
+def _load_chat_memory(user_id, conversation_id, memory_turns):
+	recent_turns = list(
+		ChatTurn.objects.filter(clerk_user_id=user_id, conversation_id=conversation_id)
+		.order_by("-created_at", "-id")[:memory_turns]
+	)
+	recent_turns.reverse()
 
-	candidates = data.get("candidates") or []
-	if not candidates:
-		return "I could not generate a response from the model."
+	messages = []
+	for turn in recent_turns:
+		if turn.role == "user":
+			messages.append(HumanMessage(content=turn.content))
+		elif turn.role == "assistant":
+			messages.append(AIMessage(content=turn.content))
+	return messages
 
-	parts = (candidates[0].get("content") or {}).get("parts") or []
-	text_parts = [part.get("text", "") for part in parts if isinstance(part, dict)]
-	answer = "\n".join(chunk for chunk in text_parts if chunk).strip()
-	return answer or "I could not generate a response from the model."
+
+def _normalize_ai_content(content):
+	if isinstance(content, str):
+		return content.strip() or "I could not generate a response from the model."
+
+	if isinstance(content, list):
+		parts = []
+		for item in content:
+			if isinstance(item, dict):
+				parts.append(str(item.get("text", "")))
+			else:
+				parts.append(str(item))
+		text = "\n".join(chunk for chunk in parts if chunk).strip()
+		return text or "I could not generate a response from the model."
+
+	return str(content or "I could not generate a response from the model.")
 
 
 @csrf_exempt
@@ -160,6 +171,7 @@ def rag_chat(request):
 		return JsonResponse({"error": "Invalid JSON payload."}, status=400)
 
 	question = str(payload.get("message") or "").strip()
+	conversation_id = str(payload.get("conversation_id") or "default").strip() or "default"
 	if not question:
 		return JsonResponse({"error": "`message` is required."}, status=400)
 
@@ -176,6 +188,7 @@ def rag_chat(request):
 
 	api_key = (settings.GEMINI_API_KEY or "").strip()
 	model = (settings.GEMINI_MODEL or GEMINI_MODEL).strip()
+	memory_turns = int(getattr(settings, "CHAT_MEMORY_TURNS", DEFAULT_MEMORY_TURNS))
 	if not api_key:
 		return JsonResponse(
 			{
@@ -187,24 +200,49 @@ def rag_chat(request):
 
 	retrieved_items = _retrieve_history_context(user_id=user_id, question=question)
 	rag_prompt = _build_rag_prompt(question, retrieved_items)
+	memory_messages = _load_chat_memory(user_id=user_id, conversation_id=conversation_id, memory_turns=memory_turns)
+
+	messages = [SystemMessage(content=_system_instruction(rag_prompt))]
+	messages.extend(memory_messages)
+	messages.append(HumanMessage(content=question))
+
+	chat_model = ChatGoogleGenerativeAI(
+		model=model,
+		google_api_key=api_key,
+		temperature=0.3,
+	)
 
 	try:
-		answer = _call_gemini(model=model, api_key=api_key, rag_prompt=rag_prompt)
-	except httpx.HTTPStatusError as exc:
+		ai_response = chat_model.invoke(messages)
+		answer = _normalize_ai_content(ai_response.content)
+	except Exception as exc:
 		return JsonResponse(
 			{
 				"error": "Gemini request failed.",
-				"details": f"{exc.response.status_code}: {exc.response.text[:500]}",
+				"details": str(exc),
 			},
 			status=502,
 		)
-	except httpx.RequestError as exc:
-		return JsonResponse({"error": "Gemini connection failed.", "details": str(exc)}, status=502)
+
+	ChatTurn.objects.create(
+		clerk_user_id=user_id,
+		conversation_id=conversation_id,
+		role="user",
+		content=question,
+	)
+	ChatTurn.objects.create(
+		clerk_user_id=user_id,
+		conversation_id=conversation_id,
+		role="assistant",
+		content=answer,
+	)
 
 	return JsonResponse(
 		{
 			"answer": answer,
 			"model": model,
+			"conversation_id": conversation_id,
+			"memory_turns_used": len(memory_messages),
 			"retrieved_context_count": len(retrieved_items),
 			"context_request_ids": [item.id for item in retrieved_items],
 		},
