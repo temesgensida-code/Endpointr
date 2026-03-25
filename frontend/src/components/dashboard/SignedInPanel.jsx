@@ -172,7 +172,7 @@ export default function SignedInPanel() {
   return (
     <section className="dashboard">
       <div className="box navbar-box">
-        <div className="navbar-title">Navbar</div>
+        <div className="navbar-title">Endpointr</div>
         <UserButton />
       </div>
 

@@ -29,7 +29,7 @@ export default function ChatbotPanel({
 }) {
   return (
     <div className="box content-box" id="box3">
-      <h2>AI Chatbot</h2>
+      <h2>Assistant</h2>
 
       <div className="chat-window">
         {chatMessages.map((msg, idx) => (
