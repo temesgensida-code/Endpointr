@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { UserButton, useAuth } from '@clerk/react'
 
+import logo from '../../assets/dzuCC01.svg'
 import ChatbotPanel from './ChatbotPanel'
 import RequestBuilderPanel from './RequestBuilderPanel'
 import StoryPanel from './StoryPanel'
@@ -231,7 +232,9 @@ export default function SignedInPanel() {
   return (
     <section className="dashboard">
       <div className="box navbar-box">
-        <div className="navbar-title">Endpointr</div>
+        <div className="navbar-title">
+          <img src={logo} alt="Endpointr Logo" className="navbar-logo" />
+        </div>
         <UserButton />
       </div>
 

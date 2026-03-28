@@ -118,6 +118,15 @@
   font-family:Cambria, Cochin, Georgia, Times, 'Times New Roman', serif;
   font-weight: 600;
   color: var(--text-h);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.navbar-logo {
+  height: 32px;
+  width: auto;
+  border-radius: 4px; /* Optional, in case the SVG looks nice with a subtle styling */
 }
 
 .content-box {
@@ -208,24 +217,32 @@
 
 .history-item {
   border: 1px solid var(--border);
-  padding: 8px;
+  padding: 4px 8px;
   background: var(--bg);
 }
 
 .history-item-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
+  min-height: 22px;
 }
 
 .history-item-main {
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
 }
 
 .history-item-id,
 .history-item-url {
   margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .history-item-url {
@@ -238,8 +255,12 @@
   background: var(--bg);
   color: var(--text-h);
   cursor: pointer;
-  width: 28px;
-  height: 28px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
 }
 
 .history-item-body p {
