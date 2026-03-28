@@ -1,6 +1,6 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 
-export async function sendChatMessageApi({ getToken, userId, question }) {
+export async function sendChatMessageApi({ getToken, userId, question, conversationId }) {
   const token = await getToken()
   const response = await fetch(`${API_BASE_URL}/ai/chat/`, {
     method: 'POST',
@@ -11,6 +11,7 @@ export async function sendChatMessageApi({ getToken, userId, question }) {
     body: JSON.stringify({
       message: question,
       client_user_id: userId,
+      conversation_id: conversationId,
     }),
   })
 
@@ -29,7 +30,7 @@ export async function sendChatMessageApi({ getToken, userId, question }) {
   }
 }
 
-export async function fetchAiChatHistoryApi({ getToken, userId }) {
+export async function fetchAiChatHistoryApi({ getToken, userId, action = "list_conversations", conversationId = "" }) {
   const token = await getToken()
   const response = await fetch(`${API_BASE_URL}/ai/history/`, {
     method: 'POST',
@@ -39,6 +40,8 @@ export async function fetchAiChatHistoryApi({ getToken, userId }) {
     },
     body: JSON.stringify({
       client_user_id: userId,
+      action: action,
+      conversation_id: conversationId,
     }),
   })
 
