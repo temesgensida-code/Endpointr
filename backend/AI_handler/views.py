@@ -248,3 +248,44 @@ def rag_chat(request):
 		},
 		status=200,
 	)
+
+@csrf_exempt
+@require_POST
+def recent_chat_history(request):
+	try:
+		payload = json.loads(request.body or "{}")
+	except json.JSONDecodeError:
+		return JsonResponse({"error": "Invalid JSON payload."}, status=400)
+
+	try:
+		user_id = _resolve_user_id(request, payload)
+	except Exception as exc:
+		return JsonResponse({"error": "Invalid token.", "details": str(exc)}, status=401)
+
+	if not user_id:
+		return JsonResponse(
+			{"error": "Could not determine sender. Include token or client_user_id."},
+			status=400,
+		)
+
+	conversation_id = str(payload.get("conversation_id") or "default").strip() or "default"
+	
+	try:
+		recent_turns = ChatTurn.objects.filter(
+			clerk_user_id=user_id, 
+			conversation_id=conversation_id,
+			role="user"
+		).order_by("-created_at")[:10]
+		
+		history = []
+		for turn in recent_turns:
+			history.append({
+				"id": turn.id,
+				"content": turn.content,
+				"created_at": turn.created_at.isoformat()
+			})
+			
+		return JsonResponse({"history": history}, status=200)
+	except Exception as exc:
+		return JsonResponse({"error": "Could not fetch history.", "details": str(exc)}, status=500)
+
