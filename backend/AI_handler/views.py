@@ -268,24 +268,46 @@ def recent_chat_history(request):
 			status=400,
 		)
 
-	conversation_id = str(payload.get("conversation_id") or "default").strip() or "default"
+	action = payload.get("action", "list_conversations")
+	conversation_id = str(payload.get("conversation_id") or "").strip()
 	
 	try:
-		recent_turns = ChatTurn.objects.filter(
-			clerk_user_id=user_id, 
-			conversation_id=conversation_id,
-			role="user"
-		).order_by("-created_at")[:10]
-		
-		history = []
-		for turn in recent_turns:
-			history.append({
-				"id": turn.id,
-				"content": turn.content,
-				"created_at": turn.created_at.isoformat()
-			})
+		if action == "get_conversation" and conversation_id:
+			turns = ChatTurn.objects.filter(
+				clerk_user_id=user_id,
+				conversation_id=conversation_id
+			).order_by("created_at")
 			
-		return JsonResponse({"history": history}, status=200)
+			history = []
+			for turn in turns:
+				history.append({
+					"role": turn.role,
+					"content": turn.content,
+					"created_at": turn.created_at.isoformat()
+				})
+			return JsonResponse({"history": history}, status=200)
+
+		else:
+			recent_turns = ChatTurn.objects.filter(
+				clerk_user_id=user_id, 
+				role="user"
+			).order_by("-created_at")[:50]
+			
+			conversations = []
+			seen = set()
+			for turn in recent_turns:
+				if turn.conversation_id not in seen:
+					seen.add(turn.conversation_id)
+					conversations.append({
+						"conversation_id": turn.conversation_id,
+						"id": turn.id,
+						"content": turn.content,
+						"created_at": turn.created_at.isoformat()
+					})
+					if len(conversations) >= 10:
+						break
+				
+			return JsonResponse({"history": conversations}, status=200)
 	except Exception as exc:
 		return JsonResponse({"error": "Could not fetch history.", "details": str(exc)}, status=500)
 
