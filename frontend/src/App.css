@@ -196,16 +196,6 @@
   font-size: 14px;
 }
 
-.story-toggle {
-  border: none;
-  border-radius: 6px;
-  padding: 8px 10px;
-  font: inherit;
-  color: #fff;
-  background: rgb(77, 77, 77);
-  cursor: pointer;
-}
-
 .history-panel {
   margin-top: 10px;
 }
@@ -255,6 +245,10 @@
 .history-item-body p {
   margin: 6px 0;
 }
+.history-btn {
+  border: 1px solid var(--border);
+  height: 27px;
+}
 
 .chat-window {
   flex: 1;
@@ -275,11 +269,11 @@
 }
 
 .chat-user {
-  background: rgba(0, 0, 0, 0.1);
+  background: rgba(0, 0, 0, 0.01);
 }
 
 .chat-assistant {
-  background: rgba(0, 0, 0, 0.01);
+  background: rgba(0, 0, 0, 0.11);
 }
 
 .chat-role {
@@ -357,6 +351,9 @@
   min-height: 92px;
   resize: vertical;
   transition: border-color 0.2s ease;
+}
+.chat-input::placeholder {
+  opacity: 0.4;
 }
 
 .chat-input:hover {

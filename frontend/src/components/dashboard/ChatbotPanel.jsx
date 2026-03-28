@@ -32,6 +32,7 @@ export default function ChatbotPanel({
   aiHistoryLoading,
   aiHistoryItems,
   onSelectAiHistory,
+  onStartNewAiChat,
 }) {
   return (
     <div className="box content-box" id="box3" style={{ position: 'relative' }}>
@@ -79,7 +80,7 @@ export default function ChatbotPanel({
                     cursor: 'pointer',
                     fontSize: '13px'
                   }}
-                  onClick={() => onSelectAiHistory(item.content)}
+                  onClick={() => onSelectAiHistory(item)}
                 >
                   <div style={{ fontSize: '11px', color: 'var(--text)', marginBottom: '4px' }}>
                     {new Date(item.created_at).toLocaleString()}
@@ -95,6 +96,15 @@ export default function ChatbotPanel({
               ))}
             </div>
           )}
+          
+          <button
+            type="button"
+            className="ask-ai-btn"
+            style={{ width: '100%', marginTop: '12px' }}
+            onClick={onStartNewAiChat}
+          >
+            + New Chat
+          </button>
         </div>
       )}
 

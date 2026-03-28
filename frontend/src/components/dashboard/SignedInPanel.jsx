@@ -37,6 +37,7 @@ export default function SignedInPanel() {
   const [aiHistoryOpen, setAiHistoryOpen] = useState(false)
   const [aiHistoryLoading, setAiHistoryLoading] = useState(false)
   const [aiHistoryItems, setAiHistoryItems] = useState([])
+  const [conversationId, setConversationId] = useState(crypto.randomUUID())
 
   const [panelWidths, setPanelWidths] = useState([25, 50, 25])
   const rowRef = useRef(null)
@@ -77,9 +78,36 @@ export default function SignedInPanel() {
     }
   }
 
-  function selectAiHistoryMessage(content) {
-    setChatInput(content)
+  async function selectAiHistoryMessage(item) {
     setAiHistoryOpen(false)
+    setConversationId(item.conversation_id)
+    setChatLoading(true)
+    try {
+      const history = await fetchAiChatHistoryApi({ 
+        getToken, 
+        userId, 
+        action: 'get_conversation', 
+        conversationId: item.conversation_id 
+      })
+      setChatMessages(history)
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setChatLoading(false)
+    }
+  }
+
+  function startNewAiChat() {
+    setAiHistoryOpen(false)
+    setConversationId(crypto.randomUUID())
+    setChatMessages([
+      {
+        role: 'assistant',
+        content:
+          'I can help debug your API calls using your recent request/response history and general FastAPI, Django REST API, and React API-client guidance.',
+      },
+    ])
+    setChatInput('')
   }
 
   function toggleStoryPanel() {
@@ -138,6 +166,7 @@ export default function SignedInPanel() {
         getToken,
         userId,
         question,
+        conversationId,
       })
 
       setChatMessages((prev) => [...prev, { role: 'assistant', content: payload.answer, contextIds: payload.contextIds }])
@@ -264,6 +293,7 @@ export default function SignedInPanel() {
           aiHistoryLoading={aiHistoryLoading}
           aiHistoryItems={aiHistoryItems}
           onSelectAiHistory={selectAiHistoryMessage}
+          onStartNewAiChat={startNewAiChat}
         />
       </div>
     </section>

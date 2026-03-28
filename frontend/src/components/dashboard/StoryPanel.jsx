@@ -9,10 +9,26 @@ export default function StoryPanel({
 }) {
   return (
     <div className="box content-box" id="box1">
-      <h2>Story</h2>
-      <button type="button" className="story-toggle" onClick={onToggleStoryPanel}>
-        {storyOpen ? 'Hide Story' : 'Show Story'}
+      <div className="history-btn">
+      <button 
+        type="button" 
+        onClick={onToggleStoryPanel}
+        style={{ 
+          background: 'none', 
+          border: 'none', 
+          cursor: 'pointer', 
+          padding: 0, 
+          textAlign: 'left', 
+          color: 'var(--text-h)', 
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px'
+        }}
+      >
+        <h2>History</h2>
+        <span style={{ fontSize: '16px', fontWeight: 'bold' }}>{storyOpen ? 'v' : '>'}</span>
       </button>
+      </div>
 
       {storyOpen ? (
         <div className="history-panel">
