@@ -65,6 +65,8 @@
   color: var(--text-h);
   white-space: pre-wrap;
   word-break: break-word;
+  max-height: 400px;
+  overflow: auto;
 }
 
 .card code {
@@ -112,7 +114,8 @@
 }
 
 .navbar-title {
-  font-size: 22px;
+  font-size: 32px;
+  font-family:Cambria, Cochin, Georgia, Times, 'Times New Roman', serif;
   font-weight: 600;
   color: var(--text-h);
 }
@@ -155,10 +158,37 @@
 }
 
 .request-json {
-  min-height: 160px;
   resize: vertical;
   font-family: var(--mono);
   font-size: 14px;
+}
+
+.request-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.method-select {
+  width: auto;
+  min-width: 90px;
+}
+
+.url-input {
+  flex: 1;
+}
+
+.send-request-btn,
+.ask-ai-btn {
+  border: none;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+  color: #fff;
+  background: rgb(77, 77, 77);
+  cursor: pointer;
+  white-space: nowrap;
 }
 
 .request-error {
@@ -172,7 +202,7 @@
   padding: 8px 10px;
   font: inherit;
   color: #fff;
-  background: black;
+  background: rgb(77, 77, 77);
   cursor: pointer;
 }
 
@@ -245,7 +275,7 @@
 }
 
 .chat-user {
-  background: rgba(0, 0, 0, 0.03);
+  background: rgba(0, 0, 0, 0.1);
 }
 
 .chat-assistant {
@@ -326,7 +356,21 @@
 .chat-input {
   min-height: 92px;
   resize: vertical;
+  transition: border-color 0.2s ease;
+}
+
+.chat-input:hover {
+  border-color: black;
 }
 #box1 {
   width:100%;
+}
+#box1 h2 {
+  font-size: 18px;
+}
+#box2 h2 {
+  font-size: 18px;
+}
+#box3 h2 {
+  font-size: 18px;
 }

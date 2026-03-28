@@ -28,3 +28,28 @@ export async function sendChatMessageApi({ getToken, userId, question }) {
     contextIds: Array.isArray(payload?.context_request_ids) ? payload.context_request_ids : [],
   }
 }
+
+export async function fetchAiChatHistoryApi({ getToken, userId }) {
+  const token = await getToken()
+  const response = await fetch(`${API_BASE_URL}/ai/history/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      client_user_id: userId,
+    }),
+  })
+
+  const payload = await response.json()
+  if (!response.ok) {
+    const details = payload?.details ? ` (${payload.details})` : ''
+    const message = payload?.error
+      ? `${payload.error}${details}`
+      : `History request failed with status ${response.status}`
+    throw new Error(message)
+  }
+
+  return payload.history || []
+}

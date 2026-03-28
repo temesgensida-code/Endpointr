@@ -4,7 +4,7 @@ import { UserButton, useAuth } from '@clerk/react'
 import ChatbotPanel from './ChatbotPanel'
 import RequestBuilderPanel from './RequestBuilderPanel'
 import StoryPanel from './StoryPanel'
-import { sendChatMessageApi } from './services/chatService'
+import { sendChatMessageApi, fetchAiChatHistoryApi } from './services/chatService'
 import { fetchRequestHistory } from './services/historyService'
 import { sendProxyRequestApi } from './services/proxyService'
 
@@ -34,6 +34,10 @@ export default function SignedInPanel() {
     },
   ])
 
+  const [aiHistoryOpen, setAiHistoryOpen] = useState(false)
+  const [aiHistoryLoading, setAiHistoryLoading] = useState(false)
+  const [aiHistoryItems, setAiHistoryItems] = useState([])
+
   const [panelWidths, setPanelWidths] = useState([25, 50, 25])
   const rowRef = useRef(null)
 
@@ -50,6 +54,32 @@ export default function SignedInPanel() {
     } finally {
       setHistoryLoading(false)
     }
+  }
+
+  async function loadAiHistory() {
+    setAiHistoryLoading(true)
+    try {
+      const history = await fetchAiChatHistoryApi({ getToken, userId })
+      setAiHistoryItems(history)
+    } catch (error) {
+      console.error("Failed to load AI history", error)
+      setAiHistoryItems([])
+    } finally {
+      setAiHistoryLoading(false)
+    }
+  }
+
+  function toggleAiHistory() {
+    const nextOpen = !aiHistoryOpen
+    setAiHistoryOpen(nextOpen)
+    if (nextOpen) {
+      loadAiHistory()
+    }
+  }
+
+  function selectAiHistoryMessage(content) {
+    setChatInput(content)
+    setAiHistoryOpen(false)
   }
 
   function toggleStoryPanel() {
@@ -229,6 +259,11 @@ export default function SignedInPanel() {
           onChatInputChange={setChatInput}
           onSendChatMessage={sendChatMessage}
           chatLoading={chatLoading}
+          aiHistoryOpen={aiHistoryOpen}
+          onToggleAiHistory={toggleAiHistory}
+          aiHistoryLoading={aiHistoryLoading}
+          aiHistoryItems={aiHistoryItems}
+          onSelectAiHistory={selectAiHistoryMessage}
         />
       </div>
     </section>
