@@ -56,3 +56,31 @@ export async function fetchAiChatHistoryApi({ getToken, userId, action = "list_c
 
   return payload.history || []
 }
+
+
+export async function deleteAiChatHistoryApi({ getToken, userId, conversationId }) {
+  const token = await getToken()
+  const response = await fetch(`${API_BASE_URL}/ai/history/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      client_user_id: userId,
+      action: 'delete_conversation',
+      conversation_id: conversationId,
+    }),
+  })
+
+  const payload = await response.json()
+  if (!response.ok) {
+    const details = payload?.details ? ` (${payload.details})` : ''
+    const message = payload?.error
+      ? `${payload.error}${details}`
+      : `Delete chat history failed with status ${response.status}`
+    throw new Error(message)
+  }
+
+  return payload
+}

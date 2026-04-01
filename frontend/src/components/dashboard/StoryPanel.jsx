@@ -1,3 +1,5 @@
+import { CiSquareRemove } from 'react-icons/ci'
+
 export default function StoryPanel({
   storyOpen,
   onToggleStoryPanel,
@@ -6,6 +8,7 @@ export default function StoryPanel({
   historyItems,
   expandedHistoryIds,
   onToggleHistoryItem,
+  onDeleteHistoryItem,
 }) {
   return (
     <div className="box content-box" id="box1">
@@ -56,6 +59,15 @@ export default function StoryPanel({
                         aria-label={`Read more for request ${item.id}`}
                       >
                         {expanded ? 'v' : '>'}
+                      </button>
+                      <button
+                        type="button"
+                        className="history-delete-btn"
+                        onClick={() => onDeleteHistoryItem(item.id)}
+                        aria-label={`Remove history ${item.id}`}
+                        title="Remove"
+                      >
+                        <CiSquareRemove />
                       </button>
                     </div>
 

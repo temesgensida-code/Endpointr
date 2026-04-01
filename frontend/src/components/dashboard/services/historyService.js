@@ -27,3 +27,31 @@ export async function fetchRequestHistory({ getToken, userId }) {
 
   return payload?.history || []
 }
+
+
+export async function deleteRequestHistoryItemApi({ getToken, userId, historyId }) {
+  const token = await getToken()
+
+  const response = await fetch(`${API_BASE_URL}/api-request/history/delete/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      client_user_id: userId,
+      history_id: historyId,
+    }),
+  })
+
+  const payload = await response.json()
+  if (!response.ok) {
+    const details = payload?.details ? ` (${payload.details})` : ''
+    const message = payload?.error
+      ? `${payload.error}${details}`
+      : `Delete history failed with status ${response.status}`
+    throw new Error(message)
+  }
+
+  return payload
+}

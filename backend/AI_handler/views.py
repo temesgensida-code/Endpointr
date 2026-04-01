@@ -362,8 +362,27 @@ def recent_chat_history(request):
 
 	action = payload.get("action", "list_conversations")
 	conversation_id = str(payload.get("conversation_id") or "").strip()
+	turn_id = payload.get("turn_id")
 	
 	try:
+		if action == "delete_conversation" and conversation_id:
+			deleted_count, _ = ChatTurn.objects.filter(
+				clerk_user_id=user_id,
+				conversation_id=conversation_id,
+			).delete()
+			if deleted_count == 0:
+				return JsonResponse({"error": "Conversation not found."}, status=404)
+			return JsonResponse({"ok": True, "deleted_conversation_id": conversation_id}, status=200)
+
+		if action == "delete_turn" and turn_id:
+			deleted_count, _ = ChatTurn.objects.filter(
+				id=turn_id,
+				clerk_user_id=user_id,
+			).delete()
+			if deleted_count == 0:
+				return JsonResponse({"error": "Chat turn not found."}, status=404)
+			return JsonResponse({"ok": True, "deleted_turn_id": turn_id}, status=200)
+
 		if action == "get_conversation" and conversation_id:
 			turns = ChatTurn.objects.filter(
 				clerk_user_id=user_id,

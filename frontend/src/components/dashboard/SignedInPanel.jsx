@@ -5,8 +5,8 @@ import logo from '../../assets/dzuCC01.svg'
 import ChatbotPanel from './ChatbotPanel'
 import RequestBuilderPanel from './RequestBuilderPanel'
 import StoryPanel from './StoryPanel'
-import { sendChatMessageApi, fetchAiChatHistoryApi } from './services/chatService'
-import { fetchRequestHistory } from './services/historyService'
+import { deleteAiChatHistoryApi, sendChatMessageApi, fetchAiChatHistoryApi } from './services/chatService'
+import { deleteRequestHistoryItemApi, fetchRequestHistory } from './services/historyService'
 import { sendProxyRequestApi } from './services/proxyService'
 
 const MIN_PANEL_PERCENT = 15
@@ -124,6 +124,27 @@ export default function SignedInPanel() {
       ...prev,
       [itemId]: !prev[itemId],
     }))
+  }
+
+  async function deleteHistoryItem(itemId) {
+    try {
+      await deleteRequestHistoryItemApi({ getToken, userId, historyId: itemId })
+      setHistoryItems((prev) => prev.filter((item) => item.id !== itemId))
+    } catch (error) {
+      setHistoryError(error.message || 'Could not delete request history item.')
+    }
+  }
+
+  async function deleteAiHistory(item) {
+    try {
+      await deleteAiChatHistoryApi({ getToken, userId, conversationId: item.conversation_id })
+      setAiHistoryItems((prev) => prev.filter((entry) => entry.conversation_id !== item.conversation_id))
+      if (conversationId === item.conversation_id) {
+        startNewAiChat()
+      }
+    } catch (error) {
+      console.error(error)
+    }
   }
 
   async function sendProxyRequest() {
@@ -253,6 +274,7 @@ export default function SignedInPanel() {
           historyItems={historyItems}
           expandedHistoryIds={expandedHistoryIds}
           onToggleHistoryItem={toggleHistoryItem}
+          onDeleteHistoryItem={deleteHistoryItem}
         />
 
         <div
@@ -297,6 +319,7 @@ export default function SignedInPanel() {
           aiHistoryItems={aiHistoryItems}
           onSelectAiHistory={selectAiHistoryMessage}
           onStartNewAiChat={startNewAiChat}
+          onDeleteAiHistory={deleteAiHistory}
         />
       </div>
     </section>

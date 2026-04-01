@@ -1,5 +1,6 @@
 import ReactMarkdown from 'react-markdown'
 import { FaHistory } from 'react-icons/fa'
+import { CiSquareRemove } from 'react-icons/ci'
 
 function toSafeText(value) {
   if (typeof value === 'string') {
@@ -33,6 +34,7 @@ export default function ChatbotPanel({
   aiHistoryItems,
   onSelectAiHistory,
   onStartNewAiChat,
+  onDeleteAiHistory,
 }) {
   return (
     <div className="box content-box" id="box3" style={{ position: 'relative' }}>
@@ -82,6 +84,21 @@ export default function ChatbotPanel({
                   }}
                   onClick={() => onSelectAiHistory(item)}
                 >
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button
+                      type="button"
+                      className="history-delete-btn"
+                      style={{ border: 'none', background: 'transparent', padding: 0, lineHeight: 0 }}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onDeleteAiHistory(item)
+                      }}
+                      aria-label={`Remove chat history ${item.id}`}
+                      title="Remove"
+                    >
+                      <CiSquareRemove />
+                    </button>
+                  </div>
                   <div style={{ fontSize: '11px', color: 'var(--text)', marginBottom: '4px' }}>
                     {new Date(item.created_at).toLocaleString()}
                   </div>

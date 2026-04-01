@@ -113,6 +113,40 @@ def request_history(request):
 
 @csrf_exempt
 @require_POST
+def delete_request_history_item(request):
+	try:
+		payload = json.loads(request.body or "{}")
+	except json.JSONDecodeError:
+		return JsonResponse({"error": "Invalid JSON payload."}, status=400)
+
+	try:
+		user_id = _resolve_user_id(request, payload)
+	except Exception as exc:
+		return JsonResponse({"error": "Invalid token.", "details": str(exc)}, status=401)
+
+	if not user_id:
+		return JsonResponse(
+			{"error": "Could not determine request sender. Include token or client_user_id."},
+			status=400,
+		)
+
+	item_id = payload.get("history_id")
+	if not item_id:
+		return JsonResponse({"error": "`history_id` is required."}, status=400)
+
+	deleted_count, _ = RequestHistory.objects.filter(
+		id=item_id,
+		clerk_user_id=user_id,
+	).delete()
+
+	if deleted_count == 0:
+		return JsonResponse({"error": "History item not found."}, status=404)
+
+	return JsonResponse({"ok": True, "deleted_history_id": item_id}, status=200)
+
+
+@csrf_exempt
+@require_POST
 def send_api_request(request):
 	try:
 		payload = json.loads(request.body or "{}")
