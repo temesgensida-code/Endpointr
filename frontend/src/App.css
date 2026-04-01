@@ -322,6 +322,10 @@
   word-break: break-word;
 }
 
+.markdown-content {
+  white-space: normal;
+}
+
 .markdown-content > :first-child {
   margin-top: 0;
 }
@@ -335,12 +339,14 @@
 .markdown-content ol,
 .markdown-content pre,
 .markdown-content blockquote {
-  margin: 0 0 8px;
+  margin: 0;
+  padding: 0;
 }
 
 .markdown-content ul,
 .markdown-content ol {
   padding-left: 20px;
+  margin: 0;
 }
 
 .markdown-content code {

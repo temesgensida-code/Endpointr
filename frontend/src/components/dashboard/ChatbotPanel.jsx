@@ -60,7 +60,7 @@ export default function ChatbotPanel({
           borderRadius: '4px',
           boxShadow: 'var(--shadow)',
           zIndex: 10,
-          width: '250px',
+          width: '350px',
           maxHeight: '300px',
           overflow: 'auto',
           padding: '8px'
@@ -71,16 +71,17 @@ export default function ChatbotPanel({
           ) : aiHistoryItems.length === 0 ? (
             <p style={{ fontSize: '13px' }}>No stories yet.</p>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
               {aiHistoryItems.map(item => (
                 <div 
                   key={item.id} 
                   style={{ 
-                    padding: '8px', 
+                    paddingTop: '1px', 
                     background: 'var(--code-bg)', 
                     borderRadius: '4px', 
                     cursor: 'pointer',
-                    fontSize: '13px'
+                    fontSize: '13px',
+                    height: '80px',
                   }}
                   onClick={() => onSelectAiHistory(item)}
                 >
@@ -99,13 +100,14 @@ export default function ChatbotPanel({
                       <CiSquareRemove />
                     </button>
                   </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text)', marginBottom: '4px' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text)',marginTop:'0px' }}>
                     {new Date(item.created_at).toLocaleString()}
                   </div>
                   <div style={{ 
                     whiteSpace: 'nowrap', 
                     overflow: 'hidden', 
-                    textOverflow: 'ellipsis' 
+                    textOverflow: 'ellipsis' ,
+                    paddingTop:'2px'
                   }}>
                     {item.content}
                   </div>
