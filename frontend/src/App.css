@@ -394,6 +394,7 @@
   min-height: 92px;
   resize: vertical;
   transition: border-color 0.2s ease;
+  border-radius: 3.8px;
 }
 .chat-input::placeholder {
   opacity: 0.4;
