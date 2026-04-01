@@ -41,8 +41,7 @@
     --accent-bg: rgba(192, 132, 252, 0.15);
     --accent-border: rgba(192, 132, 252, 0.5);
     --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
+    --shadow: rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;  
   }
 
   #social .button-icon {
@@ -50,15 +49,37 @@
   }
 }
 
-body {
-  margin: 0;
+body.light-mode {
+  --text: #6b6375;
+  --text-h: #08060d;
+  --bg: #fff;
+  --border: #e5e4e7;
+  --code-bg: #f4f3ec;
+  --accent: #aa3bff;
+  --accent-bg: rgba(170, 59, 255, 0.1);
+  --accent-border: rgba(49, 48, 50, 0.5);
+  --social-bg: rgba(244, 243, 236, 0.5);
+  --btn-bg: rgb(77, 77, 77);
+  --btn-text: #fff;
+  --chat-ai-bg: rgba(0, 0, 0, 0.11);
+  --chat-user-bg: transparent;
+  background: var(--bg);
+  color: var(--text);
 }
 
-
-#root {
-  width: 100%;
-  max-width: 100%;
-  margin: 0 auto;
+body.dark-mode {
+  --text: #ffffff;
+  --text-h: #ffffff;
+  --bg: #000000;
+  --border: #333333;
+  --code-bg: #1a1a1a;
+  --btn-bg: #ffffff;
+  --btn-text: #000000;
+  --chat-ai-bg: #222222;
+  --chat-user-bg: #000000;
+  --logo-filter: invert(1);
+  background: var(--bg);
+  color: var(--text);
   text-align: center;
   border-inline: 1px solid var(--border);
   min-height: 100svh;

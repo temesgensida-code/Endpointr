@@ -47,8 +47,8 @@
   border-radius: 4px;
   padding: 10px 12px;
   font: inherit;
-  color: #fff;
-  background: black;
+  color: var(--btn-text, #fff);
+  background: var(--btn-bg, black);
   cursor: pointer;
 }
 
@@ -124,9 +124,11 @@
 }
 
 .navbar-logo {
-  height: 32px;
+  height: 50px;
   width: auto;
-  border-radius: 4px; /* Optional, in case the SVG looks nice with a subtle styling */
+  border-radius: 4px;
+  filter: var(--logo-filter, none);
+  transition: filter 0.3s ease;
 }
 
 .content-box {
@@ -194,8 +196,8 @@
   border-radius: 6px;
   padding: 8px 10px;
   font: inherit;
-  color: #fff;
-  background: rgb(77, 77, 77);
+  color: var(--btn-text, #fff);
+  background: var(--btn-bg, rgb(77, 77, 77));
   cursor: pointer;
   white-space: nowrap;
 }
@@ -304,11 +306,11 @@
 }
 
 .chat-user {
-  background: rgba(0, 0, 0, 0.01);
+  background: var(--chat-user-bg, rgba(0, 0, 0, 0.01));
 }
 
 .chat-assistant {
-  background: rgba(0, 0, 0, 0.11);
+  background: var(--chat-ai-bg, rgba(0, 0, 0, 0.11));
 }
 
 .chat-role {

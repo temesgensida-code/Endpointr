@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react'
 import { UserButton, useAuth } from '@clerk/react'
+import { MdDarkMode } from "react-icons/md";
+import { MdLightMode } from "react-icons/md";
 
-import logo from '../../assets/dzuCC01.svg'
+import logo from '../../assets/endpointr.svg'
 import ChatbotPanel from './ChatbotPanel'
 import RequestBuilderPanel from './RequestBuilderPanel'
 import StoryPanel from './StoryPanel'
@@ -27,6 +29,7 @@ export default function SignedInPanel() {
   const [requestJsonBody, setRequestJsonBody] = useState('{\n  \n}')
   const [chatLoading, setChatLoading] = useState(false)
   const [chatInput, setChatInput] = useState('')
+  const [darkMode, setDarkMode] = useState(false)
   const [chatMessages, setChatMessages] = useState([
     {
       role: 'assistant',
@@ -250,13 +253,54 @@ export default function SignedInPanel() {
     window.addEventListener('pointerup', onPointerUp)
   }
 
+  function toggleLightMode() {
+    document.body.classList.remove('dark-mode')
+    document.body.classList.add('light-mode')
+  }
+
+  function toggleDarkMode() {
+    document.body.classList.remove('light-mode')
+    document.body.classList.add('dark-mode')
+  }
+
   return (
     <section className="dashboard">
       <div className="box navbar-box">
         <div className="navbar-title">
           <img src={logo} alt="Endpointr Logo" className="navbar-logo" />
         </div>
-        <UserButton />
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          {/* <button 
+            type="button" 
+            onClick={toggleDarkMode} 
+            title="Dark Mode" 
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-h)' }}
+          >
+            <MdDarkMode size={24} />
+          </button>
+          <button 
+            type="button" 
+            onClick={toggleLightMode} 
+            title="Light Mode" 
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-h)' }}
+          >
+            <MdLightMode size={24} />
+          </button> */}
+          <button 
+            type="button"
+            onClick={()=>{
+              darkMode ? toggleLightMode() : toggleDarkMode();
+              setDarkMode(!darkMode);
+              }
+            }
+            title={darkMode ? "Switch to Light Mode" : "Switch to Dark Mode"
+            } 
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-h)' }}
+          >
+            {darkMode ? <MdLightMode size={24} /> : <MdDarkMode size={24} />}
+          </button>
+          <UserButton />
+        </div>
       </div>
 
       <div
