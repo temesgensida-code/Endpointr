@@ -1,4 +1,6 @@
 import { CiSquareRemove } from 'react-icons/ci'
+import { FaAngleDown } from "react-icons/fa";
+import { FaChevronUp } from "react-icons/fa";
 
 export default function StoryPanel({
   storyOpen,
@@ -29,7 +31,7 @@ export default function StoryPanel({
         }}
       >
         <h2>History</h2>
-        <span style={{ fontSize: '16px', fontWeight: 'bold' }}>{storyOpen ? 'v' : '>'}</span>
+        <span style={{ fontSize: '16px', fontWeight: 'bold' }}>{storyOpen ? <FaAngleDown /> : <FaChevronUp />}</span>
       </button>
       </div>
 

@@ -268,7 +268,7 @@
 .history-delete-btn {
   border: none;
   background: transparent;
-  color: #b00020;
+  color: #70595d;
   cursor: pointer;
   width: 22px;
   height: 22px;
@@ -310,7 +310,7 @@
 }
 
 .chat-assistant {
-  background: var(--chat-ai-bg, rgba(0, 0, 0, 0.11));
+  background: var(--chat-ai-bg, rgba(46, 45, 45, 0.11));
 }
 
 .chat-role {
