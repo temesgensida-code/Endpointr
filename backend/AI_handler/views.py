@@ -1,11 +1,12 @@
 import json
+import math
 
 from django.conf import settings
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 
 from AI_handler.models import ChatTurn
 from API_request.models import RequestHistory
@@ -13,6 +14,7 @@ from Authentication.decorators import authenticate_clerk_request
 
 
 GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_EMBEDDING_MODEL = "models/gemini-embedding-001"
 DEFAULT_MEMORY_TURNS = 12
 
 RAG_GUIDE_SNIPPETS = [
@@ -60,33 +62,106 @@ def _resolve_user_id(request, payload):
 	return None
 
 
-def _tokenize(text):
-	return {chunk.lower() for chunk in str(text).replace("\n", " ").split() if chunk.strip()}
+def _cosine_similarity(vec_a, vec_b):
+	if not vec_a or not vec_b:
+		return 0.0
+
+	dot = sum(a * b for a, b in zip(vec_a, vec_b))
+	norm_a = math.sqrt(sum(a * a for a in vec_a))
+	norm_b = math.sqrt(sum(b * b for b in vec_b))
+	if norm_a == 0 or norm_b == 0:
+		return 0.0
+	return dot / (norm_a * norm_b)
 
 
-def _retrieve_history_context(user_id, question, limit=10, top_k=5):
+def _embedding_model_candidates(embedding_model):
+	base = str(embedding_model or "").strip() or GEMINI_EMBEDDING_MODEL
+	candidates = [base]
+
+	if base.startswith("models/"):
+		candidates.append(base.split("models/", 1)[1])
+	else:
+		candidates.append(f"models/{base}")
+
+	# Add known Gemini embedding model variants for API-version compatibility.
+	known_models = [
+		"models/gemini-embedding-001",
+		"gemini-embedding-001",
+		"models/embedding-001",
+		"embedding-001",
+		"models/text-embedding-004",
+		"text-embedding-004",
+	]
+	candidates.extend(known_models)
+
+	# Preserve order but remove duplicates.
+	seen = set()
+	ordered = []
+	for item in candidates:
+		if item not in seen:
+			seen.add(item)
+			ordered.append(item)
+	return ordered
+
+
+def _retrieve_history_context_with_embeddings(user_id, question, api_key, embedding_model, limit=12, top_k=5):
 	items = list(
 		RequestHistory.objects.filter(clerk_user_id=user_id)
 		.order_by("-created_at", "-id")[:limit]
 	)
-
 	if not items:
 		return []
 
-	q_tokens = _tokenize(question)
+	doc_texts = [
+		(
+			f"method={item.request_method}\n"
+			f"url={item.request_url}\n"
+			f"status={item.response_status_code}\n"
+			f"response={item.response_body[:3500]}"
+		)
+		for item in items
+	]
+
+	last_exc = None
+	query_embedding = None
+	doc_embeddings = None
+	for model_name in _embedding_model_candidates(embedding_model):
+		try:
+			embeddings = GoogleGenerativeAIEmbeddings(
+				model=model_name,
+				google_api_key=api_key,
+			)
+			query_embedding = embeddings.embed_query(question)
+			doc_embeddings = embeddings.embed_documents(doc_texts)
+			break
+		except Exception as exc:
+			last_exc = exc
+
+	if query_embedding is None or doc_embeddings is None:
+		raise RuntimeError(f"Embedding provider failed for configured model variants: {last_exc}")
+
 	scored = []
-	for item in items:
-		haystack = f"{item.request_method} {item.request_url} {item.response_status_code} {item.response_body[:3000]}"
-		h_tokens = _tokenize(haystack)
-		overlap = len(q_tokens.intersection(h_tokens))
-		recency_bonus = 0.001 * item.id
-		scored.append((overlap + recency_bonus, item))
+	for item, doc_vector in zip(items, doc_embeddings):
+		score = _cosine_similarity(query_embedding, doc_vector)
+		score += 0.0005 * item.id  # small recency bias
+		scored.append((score, item))
 
 	ranked = sorted(scored, key=lambda pair: pair[0], reverse=True)
 	selected = [entry for score, entry in ranked[:top_k] if score > 0]
 	if not selected:
 		selected = items[: min(top_k, len(items))]
 	return selected
+
+
+def _retrieve_history_context(user_id, question, api_key, embedding_model, limit=12, top_k=5):
+	return _retrieve_history_context_with_embeddings(
+		user_id=user_id,
+		question=question,
+		api_key=api_key,
+		embedding_model=embedding_model,
+		limit=limit,
+		top_k=top_k,
+	)
 
 
 def _build_rag_prompt(question, history_items):
@@ -188,6 +263,7 @@ def rag_chat(request):
 
 	api_key = (settings.GEMINI_API_KEY or "").strip()
 	model = (settings.GEMINI_MODEL or GEMINI_MODEL).strip()
+	embedding_model = (settings.GEMINI_EMBEDDING_MODEL or GEMINI_EMBEDDING_MODEL).strip()
 	memory_turns = int(getattr(settings, "CHAT_MEMORY_TURNS", DEFAULT_MEMORY_TURNS))
 	if not api_key:
 		return JsonResponse(
@@ -198,7 +274,21 @@ def rag_chat(request):
 			status=500,
 		)
 
-	retrieved_items = _retrieve_history_context(user_id=user_id, question=question)
+	try:
+		retrieved_items = _retrieve_history_context(
+			user_id=user_id,
+			question=question,
+			api_key=api_key,
+			embedding_model=embedding_model,
+		)
+	except Exception as exc:
+		return JsonResponse(
+			{
+				"error": "Embedding retrieval failed.",
+				"details": str(exc),
+			},
+			status=502,
+		)
 	rag_prompt = _build_rag_prompt(question, retrieved_items)
 	memory_messages = _load_chat_memory(user_id=user_id, conversation_id=conversation_id, memory_turns=memory_turns)
 
@@ -241,6 +331,8 @@ def rag_chat(request):
 		{
 			"answer": answer,
 			"model": model,
+			"embedding_model": embedding_model,
+			"retrieval_mode": "gemini-embeddings",
 			"conversation_id": conversation_id,
 			"memory_turns_used": len(memory_messages),
 			"retrieved_context_count": len(retrieved_items),
