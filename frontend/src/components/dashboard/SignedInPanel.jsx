@@ -270,22 +270,6 @@ export default function SignedInPanel() {
           <img src={logo} alt="Endpointr Logo" className="navbar-logo" />
         </div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-          {/* <button 
-            type="button" 
-            onClick={toggleDarkMode} 
-            title="Dark Mode" 
-            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-h)' }}
-          >
-            <MdDarkMode size={24} />
-          </button>
-          <button 
-            type="button" 
-            onClick={toggleLightMode} 
-            title="Light Mode" 
-            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-h)' }}
-          >
-            <MdLightMode size={24} />
-          </button> */}
           <button 
             type="button"
             onClick={()=>{
@@ -341,6 +325,19 @@ export default function SignedInPanel() {
           proxyError={proxyError}
           proxyResult={proxyResult}
           methods={HTTP_METHODS}
+          onAskAiAboutPentest={(message) => {
+            const userMessage = { role: 'user', content: message }
+            setChatMessages((prev) => [...prev, userMessage])
+            setChatLoading(true)
+            sendChatMessageApi({ getToken, userId, question: message, conversationId })
+              .then((payload) => {
+                setChatMessages((prev) => [...prev, { role: 'assistant', content: payload.answer, contextIds: payload.contextIds }])
+              })
+              .catch((error) => {
+                setChatMessages((prev) => [...prev, { role: 'assistant', content: `Error: ${error.message}` }])
+              })
+              .finally(() => setChatLoading(false))
+          }}
         />
 
         <div
