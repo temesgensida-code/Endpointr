@@ -1,6 +1,6 @@
 import json
 from urllib.parse import urlparse
-
+from functools import lru_cache
 import httpx
 from django.conf import settings
 from django.http import JsonResponse
@@ -147,6 +147,7 @@ def delete_request_history_item(request):
 
 @csrf_exempt
 @require_POST
+@lru_cache(maxsize=128)
 def send_api_request(request):
 	try:
 		payload = json.loads(request.body or "{}")
