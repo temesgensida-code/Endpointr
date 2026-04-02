@@ -11,6 +11,24 @@ Endpointr is a powerful full-stack developer tool designed to securely build, pr
 - **Authentication:** Integrated Clerk user authentication. 
 - **Dark / Light Mode & Markdown Support:** A highly capable React UI with toggleable dark themes and neatly formatted robust Markdown responses. 
 
+---
+## Here I have included what the project look like
+**what the auth look like** :for authentication I used Clerk auth with some creativity to integrate the react with django
+![Authentication](frontend/src/assets/one_Endptr.png)
+
+**What the frontpage look like:** this is what my beautiful endpoint tester look like
+![Frontpage](frontend/src/assets/two_Endptr.png)
+
+**what the request response look like:** (to keep you eyes safe i have changed the theme to dark mode)this is what the request response look like,you choose the method of request you want to send to the endpoints then the response will appear at the bottom,you can also include a json format data to send to endpoints
+![Frontpage](frontend/src/assets/three_getreq_Endptr.png)
+
+**whar the penetration testing(only passive pentest) look like:** here i have included what the pentesting look like at this time i included only passive pentesting (which checks the presence of headers that keep our sites safe, and if it is not safe, it will give us instruction how to resolve it specifically for django and fastapi)
+![Frontpage](frontend/src/assets/four_pentest_Endptr.png)
+
+**what the pentesting(AI assistance) look like:** here i tried to include what the AI assistance to resolve pentesting process look like.
+![Frontpage](frontend/src/assets/five_pentest_AI_Endptr.png)
+
+---
 ## Technology Stack
 - **Frontend:** React, Vite, Clerk (`@clerk/react`), React-Markdown.
 - **Backend:** Django 6.0, Python 3.11, Django-Cors-Headers.
