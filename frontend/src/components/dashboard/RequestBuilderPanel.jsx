@@ -121,18 +121,19 @@ export default function RequestBuilderPanel({
               top: '100%',
               right: 0,
               background: 'var(--bg)',
-              border: '1px solid var(--border)',
+              // border: '1px solid var(--border)',
+              border:'2px black',
               borderRadius: '4px',
               boxShadow: 'var(--shadow)',
               zIndex: 50,
               display: 'flex',
               flexDirection: 'column',
-              minWidth: '160px',
+              minWidth: '260px',
               padding: '4px 0'
             }}>
-               <div style={{ padding: '8px 12px', fontSize: '12px', fontWeight: 'bold', background: 'var(--code-bg)', borderBottom: '1px solid var(--border)' }}>Pentest <span style={{fontWeight:'normal', cursor:'pointer', float: 'right'}} onClick={handleNormalModeClick}>Exit</span></div>
-               <button type="button" disabled style={{ padding: '8px 12px', background: 'transparent', border: 'none', textAlign: 'left', cursor: 'not-allowed', color: 'var(--text)', opacity: 0.5 }}>Active Pentest (Coming Soon)</button>
-               <button type="button" onClick={handlePassivePentestClick} style={{ padding: '8px 12px', background: 'transparent', border: 'none', textAlign: 'left', cursor: 'pointer', color: 'var(--text-h)' }}>Passive Pentest</button>
+            <div style={{ padding: '8px 12px', fontSize: '12px', fontWeight: 'bold', background: 'var(--code-bg)', borderBottom: '1px solid var(--border)' }}>Pentest <span style={{fontWeight:'normal', cursor:'pointer', float: 'right'}} onClick={handleNormalModeClick}>Exit</span></div>
+               <button type="button" disabled style={{ padding: '8px 12px', background: 'transparent', border: '2px black', textAlign: 'left', cursor: 'not-allowed', color: 'var(--text)', opacity: 0.5 }}>Active Pentest (Coming Soon)</button>
+               <button type="button" onClick={handlePassivePentestClick} style={{ padding: '8px 12px', background: 'transparent',hover: 'var(--hover)', border: '6px black', textAlign: 'left', cursor: 'pointer', color: 'var(--text-h)' }}>Passive Pentest</button>
             </div>
           )}
         </div>
