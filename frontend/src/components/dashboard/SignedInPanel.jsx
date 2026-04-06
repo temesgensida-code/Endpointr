@@ -7,7 +7,7 @@ import logo from '../../assets/endpointr.svg'
 import ChatbotPanel from './ChatbotPanel'
 import RequestBuilderPanel from './RequestBuilderPanel'
 import StoryPanel from './StoryPanel'
-import { deleteAiChatHistoryApi, sendChatMessageApi, fetchAiChatHistoryApi } from './services/chatService'
+import { deleteAiChatHistoryApi, fetchAiChatHistoryApi, streamChatMessageWs } from './services/chatService'
 import { deleteRequestHistoryItemApi, fetchRequestHistory } from './services/historyService'
 import { sendProxyRequestApi } from './services/proxyService'
 
@@ -181,24 +181,52 @@ export default function SignedInPanel() {
       return
     }
 
+    const streamId = crypto.randomUUID()
     const userMessage = { role: 'user', content: question }
-    setChatMessages((prev) => [...prev, userMessage])
+    const pendingAssistant = { role: 'assistant', content: '', contextIds: [], streamId }
+
+    setChatMessages((prev) => [...prev, userMessage, pendingAssistant])
     setChatInput('')
     setChatLoading(true)
 
     try {
-      const payload = await sendChatMessageApi({
+      const payload = await streamChatMessageWs({
         getToken,
         userId,
         question,
         conversationId,
+        onChunk: (delta) => {
+          setChatMessages((prev) =>
+            prev.map((msg) =>
+              msg.streamId === streamId
+                ? { ...msg, content: `${msg.content || ''}${delta}` }
+                : msg
+            )
+          )
+        },
       })
 
-      setChatMessages((prev) => [...prev, { role: 'assistant', content: payload.answer, contextIds: payload.contextIds }])
+      setChatMessages((prev) =>
+        prev.map((msg) =>
+          msg.streamId === streamId
+            ? {
+                role: 'assistant',
+                content: payload.answer || msg.content,
+                contextIds: payload.contextIds,
+              }
+            : msg
+        )
+      )
     } catch (error) {
       setChatMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: `I could not answer right now: ${error.message || 'Unknown error.'}` },
+        ...prev.map((msg) =>
+          msg.streamId === streamId
+            ? {
+                role: 'assistant',
+                content: `I could not answer right now: ${error.message || 'Unknown error.'}`,
+              }
+            : msg
+        ),
       ])
     } finally {
       setChatLoading(false)
@@ -326,15 +354,50 @@ export default function SignedInPanel() {
           proxyResult={proxyResult}
           methods={HTTP_METHODS}
           onAskAiAboutPentest={(message) => {
+            const streamId = crypto.randomUUID()
             const userMessage = { role: 'user', content: message }
-            setChatMessages((prev) => [...prev, userMessage])
+            const pendingAssistant = { role: 'assistant', content: '', contextIds: [], streamId }
+            setChatMessages((prev) => [...prev, userMessage, pendingAssistant])
             setChatLoading(true)
-            sendChatMessageApi({ getToken, userId, question: message, conversationId })
+            streamChatMessageWs({
+              getToken,
+              userId,
+              question: message,
+              conversationId,
+              onChunk: (delta) => {
+                setChatMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.streamId === streamId
+                      ? { ...msg, content: `${msg.content || ''}${delta}` }
+                      : msg
+                  )
+                )
+              },
+            })
               .then((payload) => {
-                setChatMessages((prev) => [...prev, { role: 'assistant', content: payload.answer, contextIds: payload.contextIds }])
+                setChatMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.streamId === streamId
+                      ? {
+                          role: 'assistant',
+                          content: payload.answer || msg.content,
+                          contextIds: payload.contextIds,
+                        }
+                      : msg
+                  )
+                )
               })
               .catch((error) => {
-                setChatMessages((prev) => [...prev, { role: 'assistant', content: `Error: ${error.message}` }])
+                setChatMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.streamId === streamId
+                      ? {
+                          role: 'assistant',
+                          content: `Error: ${error.message}`,
+                        }
+                      : msg
+                  )
+                )
               })
               .finally(() => setChatLoading(false))
           }}
