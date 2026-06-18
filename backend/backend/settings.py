@@ -49,6 +49,18 @@ INSTALLED_APPS = [
     'AI_handler',
     'Authentication',
     'users',
+        # ── New control-plane apps (Phase 3) ──────────────────────────────────
+    'projects.apps.ProjectsConfig',
+    'api_collections',
+    'workflows',
+    'performance',
+    'monitoring',
+    'contracts',
+    'documentation',
+    'reports',
+    'audit.apps.AuditConfig',    # ← must be LAST (listens to all other apps)
+    'security_tools',
+    'realtime',
 ]
 
 MIDDLEWARE = [
@@ -60,6 +72,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'audit.middleware.AuditActorMiddleware',
 ]
 
 ROOT_URLCONF = 'backend.urls'
@@ -155,3 +168,9 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:5173',
     'http://127.0.0.1:5173',
 ]
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'Authentication.drf_auth.ClerkJWTAuthentication',
+    ],
+}

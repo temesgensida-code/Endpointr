@@ -1,16 +1,18 @@
 import { useAuth } from '@clerk/react'
 import SignedOutPanel from './components/auth/SignedOutPanel'
-import SignedInPanel from './components/dashboard/SignedInPanel'
-import './App.css'
+import AppShell from './components/layout/AppShell'
+import './index.css'
 
-function App() {
-  const { isSignedIn } = useAuth()
+export default function App() {
+  const { isSignedIn, isLoaded } = useAuth()
 
-  return (
-    <main className={isSignedIn ? 'layout dashboard-layout' : 'layout'}>
-      {isSignedIn ? <SignedInPanel /> : <SignedOutPanel />}
-    </main>
-  )
+  if (!isLoaded) {
+    return (
+      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div className="spinner" style={{ width: 28, height: 28 }} />
+      </div>
+    )
+  }
+
+  return isSignedIn ? <AppShell /> : <SignedOutPanel />
 }
-
-export default App

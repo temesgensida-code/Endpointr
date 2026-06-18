@@ -3,3 +3,9 @@
 .env
 .env.*
 !.env.example
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+venv/
