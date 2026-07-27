@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { UserButton, useAuth } from '@clerk/react'
+import { useAuth } from '@clerk/react'
 import Sidebar from './Sidebar'
 import Navbar from './Navbar'
 import RequestBuilder from '../dashboard/services/RequestBuilder'
@@ -11,12 +11,14 @@ import MonitoringView from '../monitoring/MonitoringView'
 import ContractsView from '../contracts/ContractsView'
 import SecurityView from '../security/SecurityView'
 import DashboardView from '../dashboard/services/DashboardView'
+import AiChatDrawer from '../ai/AiChatDrawer'
 
 export default function AppShell() {
   const { getToken, userId } = useAuth()
   const [activeView, setActiveView] = useState('request-builder')
   const [activeProjectId, setActiveProjectId] = useState(null)
   const [activeProjectName, setActiveProjectName] = useState('')
+  const [aiDrawerOpen, setAiDrawerOpen] = useState(false)
 
   const selectProject = useCallback((id, name) => {
     setActiveProjectId(id)
@@ -48,11 +50,20 @@ export default function AppShell() {
           activeView={activeView}
           projectName={activeProjectName}
           getToken={getToken}
+          onToggleAi={() => setAiDrawerOpen(p => !p)}
+          aiOpen={aiDrawerOpen}
         />
         <main style={{ flex: 1, overflow: 'hidden' }}>
           {views[activeView] || views['request-builder']}
         </main>
       </div>
+
+      <AiChatDrawer
+        isOpen={aiDrawerOpen}
+        onClose={() => setAiDrawerOpen(false)}
+        getToken={getToken}
+        userId={userId}
+      />
     </div>
   )
 }
