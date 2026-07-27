@@ -1,8 +1,7 @@
 import { useRef, useState } from 'react'
-import { useAuth } from '@clerk/react'
 import { sendProxyRequestApi } from './proxyService'
 import { fetchRequestHistory, deleteRequestHistoryItemApi } from './historyService'
-import { streamChatMessageWs, fetchAiChatHistoryApi, deleteAiChatHistoryApi } from './chatService'
+import AiChatWidget from '../../ai/AiChatWidget'
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD']
 const MIN_PCT = 15
@@ -38,22 +37,12 @@ export default function RequestBuilder({ getToken, userId }) {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [expandedIds, setExpandedIds] = useState({})
 
-  /* chat */
-  const [chatMessages, setChatMessages] = useState([{
-    role: 'assistant',
-    content: 'I can help debug your API calls using your recent request/response history and general API guidance.',
-  }])
-  const [chatInput, setChatInput]   = useState('')
-  const [chatLoading, setChatLoading] = useState(false)
-  const [conversationId]            = useState(crypto.randomUUID())
-  const [aiHistoryOpen, setAiHistoryOpen] = useState(false)
-  const [aiHistoryItems, setAiHistoryItems] = useState([])
-  const [aiHistoryLoading, setAiHistoryLoading] = useState(false)
+  /* prompt to send to AI from Ask AI button */
+  const [askAiPrompt, setAskAiPrompt] = useState('')
 
   /* panel widths */
   const [widths, setWidths] = useState([22, 50, 28])
   const rowRef = useRef(null)
-  const chatEndRef = useRef(null)
 
   /* ── Send request ── */
   async function sendRequest() {
@@ -97,27 +86,6 @@ export default function RequestBuilder({ getToken, userId }) {
     setMethod(item.method || 'GET')
     setUrl(item.url || '')
     try { setBody(JSON.stringify(JSON.parse(item.request_body || '{}'), null, 2)) } catch { setBody('') }
-  }
-
-  /* ── Chat ── */
-  async function sendChat(message) {
-    const q = (message || chatInput).trim()
-    if (!q) return
-    const streamId = crypto.randomUUID()
-    setChatMessages(p => [...p, { role: 'user', content: q }, { role: 'assistant', content: '', streamId }])
-    setChatInput(''); setChatLoading(true)
-    try {
-      const payload = await streamChatMessageWs({
-        getToken, userId, question: q, conversationId,
-        onChunk: d => setChatMessages(p => p.map(m => m.streamId === streamId ? { ...m, content: m.content + d } : m)),
-      })
-      setChatMessages(p => p.map(m => m.streamId === streamId ? { role: 'assistant', content: payload.answer || m.content } : m))
-    } catch (e) {
-      setChatMessages(p => p.map(m => m.streamId === streamId ? { role: 'assistant', content: `Error: ${e.message}` } : m))
-    } finally {
-      setChatLoading(false)
-      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
-    }
   }
 
   /* ── Resize ── */
@@ -344,7 +312,7 @@ export default function RequestBuilder({ getToken, userId }) {
               <button
                 className="btn btn-ghost btn-xs"
                 style={{ fontSize: 11 }}
-                onClick={() => sendChat(`Analyse this API response and check for security issues:\n\`\`\`\nURL: ${url}\nMethod: ${method}\nStatus: ${result.response_status_code}\nBody: ${prettyResponse}\n\`\`\``)}
+                onClick={() => setAskAiPrompt(`Analyse this API response and check for security issues:\n\`\`\`\nURL: ${url}\nMethod: ${method}\nStatus: ${result.response_status_code}\nBody: ${prettyResponse}\n\`\`\``)}
               >
                 Ask AI
               </button>
@@ -395,95 +363,8 @@ export default function RequestBuilder({ getToken, userId }) {
       <div className="resizer" onPointerDown={e => startResize(1, e)} />
 
       {/* ══ PANEL 3 — AI Chat ══ */}
-      <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg-raised)', borderLeft: '1px solid var(--border)' }}>
-        {/* Chat header */}
-        <div style={{ padding: 'var(--s3) var(--s4)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 'var(--s2)', flexShrink: 0 }}>
-          <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--green)', boxShadow: '0 0 4px var(--green)' }} />
-          <h2 style={{ fontSize: 12, flex: 1 }}>AI Assistant</h2>
-          <button className="btn-icon" onClick={async () => {
-            setAiHistoryOpen(p => !p)
-            if (!aiHistoryOpen) {
-              setAiHistoryLoading(true)
-              try { setAiHistoryItems(await fetchAiChatHistoryApi({ getToken, userId })) } catch {} finally { setAiHistoryLoading(false) }
-            }
-          }}>
-            <HistoryIcon size={13} />
-          </button>
-        </div>
-
-        {/* AI History dropdown */}
-        {aiHistoryOpen && (
-          <div style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-overlay)', maxHeight: 180, overflow: 'auto', flexShrink: 0 }}>
-            <div style={{ padding: 'var(--s2) var(--s3)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, color: 'var(--tx-muted)' }}>Past conversations</span>
-              <button className="btn btn-ghost btn-xs" onClick={() => {
-                setAiHistoryOpen(false)
-                setChatMessages([{ role: 'assistant', content: 'I can help debug your API calls using your recent request/response history and general API guidance.' }])
-              }}>New chat</button>
-            </div>
-            {aiHistoryLoading && <div style={{ padding: 'var(--s3)', display: 'flex', justifyContent: 'center' }}><div className="spinner" /></div>}
-            {aiHistoryItems.map(item => (
-              <div key={item.conversation_id} style={{ padding: '8px var(--s3)', display: 'flex', alignItems: 'center', gap: 'var(--s2)', cursor: 'pointer', borderTop: '1px solid var(--border)' }}
-                onClick={() => { setAiHistoryOpen(false) }}>
-                <span style={{ flex: 1, fontSize: 11, color: 'var(--tx-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {item.preview || item.conversation_id?.slice(0, 20)}
-                </span>
-                <button className="btn-icon" style={{ width: 20, height: 20 }}
-                  onClick={async e => { e.stopPropagation(); await deleteAiChatHistoryApi({ getToken, userId, conversationId: item.conversation_id }); setAiHistoryItems(p => p.filter(i => i.conversation_id !== item.conversation_id)) }}>
-                  <TrashIcon size={11} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Messages */}
-        <div style={{ flex: 1, overflow: 'auto', padding: 'var(--s3)' }}>
-          {chatMessages.map((msg, i) => (
-            <div key={i} style={{
-              marginBottom: 'var(--s3)',
-              display: 'flex', flexDirection: 'column',
-              alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start',
-            }}>
-              <div style={{
-                maxWidth: '90%',
-                background: msg.role === 'user' ? 'var(--accent-dim)' : 'var(--bg-overlay)',
-                border: `1px solid ${msg.role === 'user' ? 'rgba(139,92,246,0.25)' : 'var(--border)'}`,
-                borderRadius: msg.role === 'user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
-                padding: '8px 12px',
-              }}>
-                {msg.role === 'user' ? (
-                  <p style={{ fontSize: 12, color: 'var(--tx-primary)', margin: 0, lineHeight: 1.5 }}>{msg.content}</p>
-                ) : (
-                  <div className="prose" style={{ fontSize: 12 }}>
-                    {msg.content
-                      ? msg.content.split('\n').map((line, j) => <p key={j} style={{ margin: '2px 0' }}>{line}</p>)
-                      : <div className="spinner" style={{ width: 12, height: 12 }} />
-                    }
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-          <div ref={chatEndRef} />
-        </div>
-
-        {/* Input */}
-        <div style={{ padding: 'var(--s3)', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
-          <div style={{ display: 'flex', gap: 'var(--s2)', alignItems: 'flex-end' }}>
-            <textarea
-              value={chatInput}
-              onChange={e => setChatInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat() } }}
-              placeholder="Ask about your API… (Enter to send)"
-              style={{ flex: 1, resize: 'none', minHeight: 60, maxHeight: 120, fontSize: 12, lineHeight: 1.5 }}
-            />
-            <button className="btn btn-primary" onClick={() => sendChat()} disabled={chatLoading || !chatInput.trim()}
-              style={{ flexShrink: 0, alignSelf: 'flex-end', padding: '8px 12px' }}>
-              {chatLoading ? <div className="spinner" style={{ width: 12, height: 12 }} /> : <SendIcon size={13} />}
-            </button>
-          </div>
-        </div>
+      <div style={{ overflow: 'hidden', borderLeft: '1px solid var(--border)' }}>
+        <AiChatWidget getToken={getToken} userId={userId} initialPrompt={askAiPrompt} />
       </div>
     </div>
   )
@@ -492,5 +373,4 @@ export default function RequestBuilder({ getToken, userId }) {
 /* ── Icons ── */
 function HistoryIcon({ size = 16 }) { return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><polyline points="12 7 12 12 16 14"/></svg> }
 function TrashIcon({ size = 14 }) { return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg> }
-function SendIcon({ size = 14 }) { return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg> }
 function ResponseIcon({ size = 32 }) { return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> }
