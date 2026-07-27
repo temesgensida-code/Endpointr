@@ -13,14 +13,17 @@ from channels.routing import ProtocolTypeRouter, URLRouter
 from django.core.asgi import get_asgi_application
 
 import AI_handler.routing
+import realtime.routing
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
 
 django_asgi_app = get_asgi_application()
 
+ws_patterns = AI_handler.routing.websocket_urlpatterns + realtime.routing.websocket_urlpatterns
+
 application = ProtocolTypeRouter(
 	{
 		'http': django_asgi_app,
-		'websocket': URLRouter(AI_handler.routing.websocket_urlpatterns),
+		'websocket': URLRouter(ws_patterns),
 	}
 )
