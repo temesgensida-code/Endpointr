@@ -80,6 +80,9 @@ class AiChatStreamConsumer(AsyncJsonWebsocketConsumer):
         if not self.user_id and client_user_id:
             self.user_id = client_user_id
 
+        if not self.user_id and settings.DEBUG:
+            self.user_id = 'dev-user'
+
         if self.require_auth and not self.user_id:
             await self.close(code=4401)
             return
@@ -95,7 +98,7 @@ class AiChatStreamConsumer(AsyncJsonWebsocketConsumer):
             await self.close(code=4400)
             return
 
-        user_id = self.user_id or str(content.get('client_user_id') or '').strip()
+        user_id = self.user_id or str(content.get('client_user_id') or '').strip() or ('dev-user' if settings.DEBUG else None)
         if not user_id:
             await self.send_json(
                 {
