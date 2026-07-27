@@ -49,16 +49,31 @@ RAG_GUIDE_SNIPPETS = [
 def _resolve_user_id(request, payload):
 	require_auth = getattr(settings, "API_PROXY_REQUIRE_AUTH", not settings.DEBUG)
 
+	# 1. Check if authenticated via DRF / Clerk
+	if hasattr(request, "user") and getattr(request.user, "is_authenticated", False):
+		sub = getattr(request.user, "clerk_sub", None) or getattr(request.user, "username", None)
+		if sub:
+			return str(sub).strip()
+
+	# 2. Try validating Clerk token header
 	try:
 		authenticate_clerk_request(request)
-		return (request.clerk_claims or {}).get("sub")
+		sub = (request.clerk_claims or {}).get("sub")
+		if sub:
+			return str(sub).strip()
 	except Exception:
 		if require_auth:
 			raise
 
-	client_user_id = payload.get("client_user_id")
+	# 3. Fallback to client_user_id or X-Dev-User-Id header
+	client_user_id = payload.get("client_user_id") or request.headers.get("X-Dev-User-Id")
 	if client_user_id:
 		return str(client_user_id).strip()
+
+	# 4. In DEBUG mode, default to dev-user
+	if settings.DEBUG:
+		return "dev-user"
+
 	return None
 
 
@@ -154,14 +169,21 @@ def _retrieve_history_context_with_embeddings(user_id, question, api_key, embedd
 
 
 def _retrieve_history_context(user_id, question, api_key, embedding_model, limit=12, top_k=5):
-	return _retrieve_history_context_with_embeddings(
-		user_id=user_id,
-		question=question,
-		api_key=api_key,
-		embedding_model=embedding_model,
-		limit=limit,
-		top_k=top_k,
-	)
+	try:
+		return _retrieve_history_context_with_embeddings(
+			user_id=user_id,
+			question=question,
+			api_key=api_key,
+			embedding_model=embedding_model,
+			limit=limit,
+			top_k=top_k,
+		)
+	except Exception:
+		# Graceful fallback: return recent request history without embeddings
+		return list(
+			RequestHistory.objects.filter(clerk_user_id=user_id)
+			.order_by("-created_at", "-id")[:top_k]
+		)
 
 
 def _build_rag_prompt(question, history_items):
