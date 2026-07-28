@@ -12,6 +12,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
@@ -396,14 +397,6 @@ func floatOrDefault(v interface{}, def float64) float64 {
 }
 
 func sortInt64(a []int64) {
-	// Simple insertion sort — fine for <100k elements
-	for i := 1; i < len(a); i++ {
-		key := a[i]
-		j := i - 1
-		for j >= 0 && a[j] > key {
-			a[j+1] = a[j]
-			j--
-		}
-		a[j+1] = key
-	}
+	// Fast O(N log N) pattern-defeating quicksort
+	slices.Sort(a)
 }
