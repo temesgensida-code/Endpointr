@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { workflowsService } from '../../services/workflowsService'
 import { useRunLive } from '../../hooks/useRunLive'
+import LiveRunDrawer from '../execution/LiveRunDrawer'
 
 export default function WorkflowsView({ getToken, projectId }) {
   const svc = workflowsService(getToken)
@@ -179,6 +180,21 @@ export default function WorkflowsView({ getToken, projectId }) {
           <div className="empty-state" style={{ height: '100%' }}><FlowIcon size={28} /><p>Select a workflow to view its pipeline and runs</p></div>
         )}
       </div>
+
+      {activeRunId && (
+        <LiveRunDrawer
+          getToken={getToken}
+          runId={activeRunId}
+          title={selected?.name}
+          type="workflow"
+          onClose={() => setActiveRunId(null)}
+          onCompleted={async () => {
+            if (selected) {
+              setRuns(await svc.listRuns(projectId, selected.id))
+            }
+          }}
+        />
+      )}
     </div>
   )
 }
