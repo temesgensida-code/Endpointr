@@ -3,7 +3,7 @@ import { workflowsService } from '../../services/workflowsService'
 import { useRunLive } from '../../hooks/useRunLive'
 import LiveRunDrawer from '../execution/LiveRunDrawer'
 
-export default function WorkflowsView({ getToken, projectId }) {
+export default function WorkflowsView({ getToken, projectId, onNavigate }) {
   const svc = workflowsService(getToken)
   const [workflows, setWorkflows] = useState([])
   const [loading, setLoading] = useState(true)
@@ -57,7 +57,17 @@ export default function WorkflowsView({ getToken, projectId }) {
   const nodeCount = selected?.definition?.nodes?.length || 0
   const edgeCount = selected?.definition?.edges?.length || 0
 
-  if (!projectId) return <div className="empty-state" style={{ height: '100%' }}><FlowIcon size={32} /><p>Select a project first</p></div>
+  if (!projectId) return (
+    <div className="empty-state" style={{ height: '100%' }}>
+      <FlowIcon size={32} />
+      <p style={{ marginBottom: 12 }}>Select a project first to build and execute workflows</p>
+      {onNavigate && (
+        <button className="btn btn-primary btn-sm" onClick={() => onNavigate('projects')}>
+          Go to Projects
+        </button>
+      )}
+    </div>
+  )
   if (loading) return <LoadingSkeleton />
 
   return (
