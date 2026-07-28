@@ -26,14 +26,14 @@ export default function AppShell() {
   }, [])
 
   const views = {
-    'dashboard': <DashboardView getToken={getToken} projectId={activeProjectId} />,
+    'dashboard': <DashboardView getToken={getToken} projectId={activeProjectId} onNavigate={setActiveView} />,
     'request-builder': <RequestBuilder getToken={getToken} userId={userId} />,
-    'projects': <ProjectsView getToken={getToken} onSelectProject={selectProject} activeProjectId={activeProjectId} />,
-    'collections': <CollectionsView getToken={getToken} projectId={activeProjectId} />,
-    'workflows': <WorkflowsView getToken={getToken} projectId={activeProjectId} />,
-    'performance': <PerformanceView getToken={getToken} projectId={activeProjectId} />,
-    'monitoring': <MonitoringView getToken={getToken} projectId={activeProjectId} />,
-    'contracts': <ContractsView getToken={getToken} projectId={activeProjectId} />,
+    'projects': <ProjectsView getToken={getToken} onSelectProject={selectProject} activeProjectId={activeProjectId} onNavigate={setActiveView} />,
+    'collections': <CollectionsView getToken={getToken} projectId={activeProjectId} onNavigate={setActiveView} />,
+    'workflows': <WorkflowsView getToken={getToken} projectId={activeProjectId} onNavigate={setActiveView} />,
+    'performance': <PerformanceView getToken={getToken} projectId={activeProjectId} onNavigate={setActiveView} />,
+    'monitoring': <MonitoringView getToken={getToken} projectId={activeProjectId} onNavigate={setActiveView} />,
+    'contracts': <ContractsView getToken={getToken} projectId={activeProjectId} onNavigate={setActiveView} />,
     'security': <SecurityView getToken={getToken} />,
   }
 
