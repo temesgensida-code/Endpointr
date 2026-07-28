@@ -245,13 +245,15 @@ func (r *Runner) evaluateAssertions(assertions []interface{}, statusCode int, bo
 
 func (r *Runner) handlePerfRun(ctx context.Context, payload map[string]interface{}) {
 	runID, _ := payload["run_id"].(string)
+	projectID, _ := payload["project_id"].(string)
 	perfType, _ := payload["type"].(string)
 	cfg, _ := payload["config"].(map[string]interface{})
 
 	r.log.Info("Perf run starting", zap.String("run_id", runID), zap.String("type", perfType))
 	r.patchRunStatus(runID, "running", "perf")
+	r.publishStatus(runID, "running", projectID)
 
-	summary, err := r.executePerfTest(ctx, perfType, cfg)
+	summary, err := r.executePerfTest(ctx, runID, projectID, perfType, cfg)
 	status := "completed"
 	if err != nil {
 		status = "failed"
@@ -263,7 +265,7 @@ func (r *Runner) handlePerfRun(ctx context.Context, payload map[string]interface
 	r.log.Info("Perf run complete", zap.String("run_id", runID), zap.String("status", status))
 }
 
-func (r *Runner) executePerfTest(ctx context.Context, testType string, cfg map[string]interface{}) (map[string]interface{}, error) {
+func (r *Runner) executePerfTest(ctx context.Context, runID, projectID, testType string, cfg map[string]interface{}) (map[string]interface{}, error) {
 	targetURL, _ := cfg["target_url"].(string)
 	method, _ := cfg["method"].(string)
 	if method == "" {
@@ -275,15 +277,56 @@ func (r *Runner) executePerfTest(ctx context.Context, testType string, cfg map[s
 		vus = 1
 	}
 
+	if targetURL == "" {
+		return map[string]interface{}{"error": "target_url is required"}, fmt.Errorf("target_url is required")
+	}
+
+	// Parse headers
+	headersMap := make(map[string]string)
+	if hRaw, ok := cfg["headers"].(map[string]interface{}); ok {
+		for k, v := range hRaw {
+			if strVal, ok := v.(string); ok {
+				headersMap[k] = strVal
+			}
+		}
+	}
+	if _, hasUA := headersMap["User-Agent"]; !hasUA {
+		headersMap["User-Agent"] = "Endpointr-PerfEngine/1.0"
+	}
+
+	// Parse body
+	bodyStr, _ := cfg["body"].(string)
+
 	type result struct {
 		latencyMs int64
 		status    int
 		err       error
 	}
 
-	resCh := make(chan result, vus*durationSec*10)
+	resCh := make(chan result, vus*durationSec*50)
 	var wg sync.WaitGroup
-	deadline := time.Now().Add(time.Duration(durationSec) * time.Second)
+	startTime := time.Now()
+	deadline := startTime.Add(time.Duration(durationSec) * time.Second)
+
+	// Stream per-second metrics
+	tickerDone := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-tickerDone:
+				return
+			case <-ctx.Done():
+				return
+			case t := <-ticker.C:
+				elapsed := t.Sub(startTime).Seconds()
+				if elapsed > 0 {
+					r.publishMetric(runID, projectID, elapsed)
+				}
+			}
+		}
+	}()
 
 	for i := 0; i < vus; i++ {
 		wg.Add(1)
@@ -291,11 +334,22 @@ func (r *Runner) executePerfTest(ctx context.Context, testType string, cfg map[s
 			defer wg.Done()
 			for time.Now().Before(deadline) {
 				start := time.Now()
-				req, err := http.NewRequestWithContext(ctx, method, targetURL, nil)
+
+				var bodyReader io.Reader
+				if bodyStr != "" {
+					bodyReader = bytes.NewReader([]byte(bodyStr))
+				}
+
+				req, err := http.NewRequestWithContext(ctx, method, targetURL, bodyReader)
 				if err != nil {
 					resCh <- result{err: err}
 					continue
 				}
+
+				for k, v := range headersMap {
+					req.Header.Set(k, v)
+				}
+
 				resp, err := r.httpClient.Do(req)
 				latency := time.Since(start).Milliseconds()
 				if err != nil {
@@ -303,6 +357,7 @@ func (r *Runner) executePerfTest(ctx context.Context, testType string, cfg map[s
 					continue
 				}
 				resp.Body.Close()
+
 				resCh <- result{latencyMs: latency, status: resp.StatusCode}
 			}
 		}()
@@ -310,6 +365,7 @@ func (r *Runner) executePerfTest(ctx context.Context, testType string, cfg map[s
 
 	go func() {
 		wg.Wait()
+		close(tickerDone)
 		close(resCh)
 	}()
 
@@ -318,15 +374,33 @@ func (r *Runner) executePerfTest(ctx context.Context, testType string, cfg map[s
 	total := 0
 	for res := range resCh {
 		total++
-		if res.err != nil || res.status >= 500 {
+		if res.err != nil || res.status >= 400 {
 			errors++
-		} else {
+		}
+		if res.err == nil {
 			latencies = append(latencies, res.latencyMs)
 		}
 	}
 
+	errRate := 0.0
+	if total > 0 {
+		errRate = float64(errors) / float64(total) * 100
+	}
+
 	if len(latencies) == 0 {
-		return map[string]interface{}{"error": "no successful requests"}, fmt.Errorf("all requests failed")
+		summary := map[string]interface{}{
+			"total_requests":   total,
+			"successful":       0,
+			"error_count":      errors,
+			"error_rate":       100.0,
+			"p50_latency_ms":   0,
+			"p95_latency_ms":   0,
+			"p99_latency_ms":   0,
+			"throughput_rps":   float64(total) / float64(durationSec),
+			"duration_seconds": durationSec,
+			"vus":              vus,
+		}
+		return summary, fmt.Errorf("all requests failed")
 	}
 
 	// Sort for percentiles
@@ -335,24 +409,44 @@ func (r *Runner) executePerfTest(ctx context.Context, testType string, cfg map[s
 	p50 := latencies[n*50/100]
 	p95 := latencies[int(float64(n)*0.95)]
 	p99 := latencies[int(float64(n)*0.99)]
-	errorRate := float64(errors) / float64(total) * 100
 
 	summary := map[string]interface{}{
-		"total_requests":    total,
-		"successful":        total - errors,
-		"error_count":       errors,
-		"error_rate":        errorRate,
-		"p50_latency_ms":    p50,
-		"p95_latency_ms":    p95,
-		"p99_latency_ms":    p99,
-		"throughput_rps":    float64(total) / float64(durationSec),
-		"duration_seconds":  durationSec,
-		"vus":               vus,
+		"total_requests":   total,
+		"successful":       total - errors,
+		"error_count":      errors,
+		"error_rate":       errRate,
+		"p50_latency_ms":   p50,
+		"p95_latency_ms":   p95,
+		"p99_latency_ms":   p99,
+		"throughput_rps":   float64(total) / float64(durationSec),
+		"duration_seconds": durationSec,
+		"vus":              vus,
 	}
 	return summary, nil
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+func (r *Runner) publishStatus(runID, status, projectID string) {
+	payload := map[string]interface{}{
+		"run_id":     runID,
+		"project_id": projectID,
+		"status":     status,
+	}
+	data, _ := json.Marshal(payload)
+	_ = r.nc.Publish("results.run.status", data)
+}
+
+func (r *Runner) publishMetric(runID, projectID string, elapsed float64) {
+	payload := map[string]interface{}{
+		"run_id":     runID,
+		"project_id": projectID,
+		"status":     "running",
+		"elapsed":    elapsed,
+	}
+	data, _ := json.Marshal(payload)
+	_ = r.nc.Publish("results.metric", data)
+}
 
 func (r *Runner) publishCompleted(runID, status string, summary map[string]interface{}) {
 	payload := map[string]interface{}{

@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 SUBJECTS = [
     "results.run.completed",
+    "results.run.status",
     "monitor.incident.opened",
     "monitor.incident.resolved",
     "results.metric",  # sampled — bridge throttles to 1 per second per run_id
@@ -56,7 +57,7 @@ def _group_for_subject(subject: str, payload: dict) -> list[str]:
     project_id = payload.get("project_id", "")
     monitor_id = payload.get("monitor_id", "")
 
-    if subject == "results.run.completed":
+    if subject in ("results.run.completed", "results.run.status"):
         if run_id:
             groups.append(f"live:run:{run_id}")
         if project_id:
