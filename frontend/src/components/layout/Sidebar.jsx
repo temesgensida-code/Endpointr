@@ -84,27 +84,23 @@ export default function Sidebar({ activeView, onNavigate, projectName, hasProjec
             <span className="section-label" style={{ paddingLeft: 6 }}>{group.group}</span>
             {group.items.map((item) => {
               const isActive = activeView === item.id
-              const needsProject = ['collections', 'workflows', 'performance', 'monitoring', 'contracts', 'dashboard'].includes(item.id)
-              const isDisabled = needsProject && !hasProject
 
               return (
                 <button
                   key={item.id}
-                  onClick={() => !isDisabled && onNavigate(item.id)}
-                  title={isDisabled ? 'Select a project first' : undefined}
+                  onClick={() => onNavigate(item.id)}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 8,
                     width: '100%', padding: '7px 10px', border: 'none',
-                    borderRadius: 'var(--r2)', cursor: isDisabled ? 'not-allowed' : 'pointer',
+                    borderRadius: 'var(--r2)', cursor: 'pointer',
                     background: isActive ? 'var(--accent-dim)' : 'transparent',
-                    color: isActive ? 'var(--accent-bright)' : isDisabled ? 'var(--tx-muted)' : 'var(--tx-secondary)',
+                    color: isActive ? 'var(--accent-bright)' : 'var(--tx-secondary)',
                     fontSize: 13, fontWeight: isActive ? 500 : 400,
                     textAlign: 'left', transition: 'all var(--t-fast)',
-                    opacity: isDisabled ? 0.5 : 1,
                     marginBottom: 1,
                   }}
-                  onMouseEnter={(e) => { if (!isActive && !isDisabled) e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = isDisabled ? '' : 'var(--tx-primary)' }}
-                  onMouseLeave={(e) => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = isDisabled ? 'var(--tx-muted)' : 'var(--tx-secondary)' } }}
+                  onMouseEnter={(e) => { if (!isActive) { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--tx-primary)' } }}
+                  onMouseLeave={(e) => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--tx-secondary)' } }}
                 >
                   <item.icon size={15} />
                   {item.label}
