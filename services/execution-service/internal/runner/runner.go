@@ -39,7 +39,16 @@ func New(nc NATSConn, controlPlaneURL string, workerCount int) *Runner {
 		nc:              nc,
 		controlPlaneURL: controlPlaneURL,
 		sem:             make(chan struct{}, workerCount),
-		httpClient:      &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        5000,
+				MaxIdleConnsPerHost: 1000,
+				IdleConnTimeout:     90 * time.Second,
+				DisableKeepAlives:   false,
+				ForceAttemptHTTP2:   true,
+			},
+		},
 	}
 }
 
