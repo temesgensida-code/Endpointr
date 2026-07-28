@@ -49,7 +49,7 @@ class ClerkJWTAuthentication(BaseAuthentication):
 
         # ── Dev bypass ────────────────────────────────────────────────────────
         clerk_issuer = getattr(settings, "CLERK_JWT_ISSUER", "")
-        if not clerk_issuer and settings.DEBUG:
+        if settings.DEBUG and (not clerk_issuer or "your-clerk" in clerk_issuer or token.startswith("dev-") or request.headers.get("X-Dev-User-Id")):
             dev_user_id = request.headers.get("X-Dev-User-Id", "dev-user")
             return (_ClerkUser(dev_user_id), token)
 
