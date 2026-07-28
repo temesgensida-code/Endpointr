@@ -59,19 +59,19 @@ def _group_for_subject(subject: str, payload: dict) -> list[str]:
 
     if subject in ("results.run.completed", "results.run.status"):
         if run_id:
-            groups.append(f"live:run:{run_id}")
+            groups.append(f"live.run.{run_id}")
         if project_id:
-            groups.append(f"live:project:{project_id}:dashboard")
+            groups.append(f"live.project.{project_id}.dashboard")
 
     elif subject == "results.metric":
         if run_id and _throttle_metric(payload):
-            groups.append(f"live:run:{run_id}")
+            groups.append(f"live.run.{run_id}")
 
     elif subject in ("monitor.incident.opened", "monitor.incident.resolved"):
         if monitor_id:
-            groups.append(f"live:monitor:{monitor_id}")
+            groups.append(f"live.monitor.{monitor_id}")
         if project_id:
-            groups.append(f"live:project:{project_id}:dashboard")
+            groups.append(f"live.project.{project_id}.dashboard")
 
     return groups
 

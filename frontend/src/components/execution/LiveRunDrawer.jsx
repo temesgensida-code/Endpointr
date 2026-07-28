@@ -23,8 +23,8 @@ export default function LiveRunDrawer({ getToken, runId, title, type = 'perf', o
   }, [events])
 
   // Extract latest metrics for performance runs
-  const latestMetricEvent = [...events].reverse().find(e => e.p95_latency_ms || e.summary?.p95_latency_ms || e.metrics)
-  const summary = events.find(e => e.summary)?.summary || latestMetricEvent?.summary || {}
+  const latestMetricEvent = [...events].reverse().find(e => e.p95_latency_ms !== undefined || e.summary?.p95_latency_ms !== undefined || e.metrics)
+  const summary = events.find(e => e.summary)?.summary || latestMetricEvent?.summary || latestMetricEvent || {}
 
   // Extract node results for workflow runs
   const nodeEvents = events.filter(e => e.node_id)

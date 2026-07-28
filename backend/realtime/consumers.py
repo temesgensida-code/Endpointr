@@ -51,7 +51,7 @@ class RunLiveConsumer(AsyncJsonWebsocketConsumer):
     """
     ws://.../ws/runs/<run_id>/live/
     Streams real-time per-run metrics and status updates.
-    Group name: live:run:<run_id>
+    Group name: live.run.<run_id>
     """
 
     async def websocket_connect(self, message):
@@ -60,7 +60,7 @@ class RunLiveConsumer(AsyncJsonWebsocketConsumer):
         if not user_id:
             await self.close(code=4001)
             return
-        self.group_name = f"live:run:{self.run_id}"
+        self.group_name = f"live.run.{self.run_id}"
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await super().websocket_connect(message)
 
@@ -77,7 +77,7 @@ class MonitorLiveConsumer(AsyncJsonWebsocketConsumer):
     """
     ws://.../ws/monitors/<monitor_id>/live/
     Streams real-time probe results and incident events.
-    Group name: live:monitor:<monitor_id>
+    Group name: live.monitor.<monitor_id>
     """
 
     async def websocket_connect(self, message):
@@ -86,7 +86,7 @@ class MonitorLiveConsumer(AsyncJsonWebsocketConsumer):
         if not user_id:
             await self.close(code=4001)
             return
-        self.group_name = f"live:monitor:{self.monitor_id}"
+        self.group_name = f"live.monitor.{self.monitor_id}"
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await super().websocket_connect(message)
 
@@ -102,7 +102,7 @@ class ProjectDashboardConsumer(AsyncJsonWebsocketConsumer):
     """
     ws://.../ws/projects/<project_id>/live/
     Project-wide live events (run completions, incidents, schema diffs).
-    Group name: live:project:<project_id>:dashboard
+    Group name: live.project.<project_id>.dashboard
     """
 
     async def websocket_connect(self, message):
@@ -111,7 +111,7 @@ class ProjectDashboardConsumer(AsyncJsonWebsocketConsumer):
         if not user_id:
             await self.close(code=4001)
             return
-        self.group_name = f"live:project:{self.project_id}:dashboard"
+        self.group_name = f"live.project.{self.project_id}.dashboard"
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await super().websocket_connect(message)
 

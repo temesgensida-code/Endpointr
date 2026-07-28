@@ -308,6 +308,11 @@ func (r *Runner) executePerfTest(ctx context.Context, runID, projectID, testType
 	startTime := time.Now()
 	deadline := startTime.Add(time.Duration(durationSec) * time.Second)
 
+	var mu sync.Mutex
+	var liveLatencies []int64
+	var totalReqs int64
+	var errCount int64
+
 	// Stream per-second metrics
 	tickerDone := make(chan struct{})
 	go func() {
@@ -322,7 +327,28 @@ func (r *Runner) executePerfTest(ctx context.Context, runID, projectID, testType
 			case t := <-ticker.C:
 				elapsed := t.Sub(startTime).Seconds()
 				if elapsed > 0 {
-					r.publishMetric(runID, projectID, elapsed)
+					mu.Lock()
+					reqs := totalReqs
+					errs := errCount
+					lats := make([]int64, len(liveLatencies))
+					copy(lats, liveLatencies)
+					mu.Unlock()
+
+					throughput := float64(reqs) / elapsed
+					errRate := 0.0
+					if reqs > 0 {
+						errRate = float64(errs) / float64(reqs) * 100
+					}
+
+					var p50, p95 int64
+					if len(lats) > 0 {
+						sortInt64(lats)
+						n := len(lats)
+						p50 = lats[n*50/100]
+						p95 = lats[int(float64(n)*0.95)]
+					}
+
+					r.publishMetric(runID, projectID, elapsed, reqs, errs, errRate, throughput, p50, p95)
 				}
 			}
 		}
@@ -342,6 +368,10 @@ func (r *Runner) executePerfTest(ctx context.Context, runID, projectID, testType
 
 				req, err := http.NewRequestWithContext(ctx, method, targetURL, bodyReader)
 				if err != nil {
+					mu.Lock()
+					totalReqs++
+					errCount++
+					mu.Unlock()
 					resCh <- result{err: err}
 					continue
 				}
@@ -352,6 +382,17 @@ func (r *Runner) executePerfTest(ctx context.Context, runID, projectID, testType
 
 				resp, err := r.httpClient.Do(req)
 				latency := time.Since(start).Milliseconds()
+
+				mu.Lock()
+				totalReqs++
+				if err != nil || (resp != nil && resp.StatusCode >= 400) {
+					errCount++
+				}
+				if err == nil {
+					liveLatencies = append(liveLatencies, latency)
+				}
+				mu.Unlock()
+
 				if err != nil {
 					resCh <- result{latencyMs: latency, err: err}
 					continue
@@ -437,12 +478,18 @@ func (r *Runner) publishStatus(runID, status, projectID string) {
 	_ = r.nc.Publish("results.run.status", data)
 }
 
-func (r *Runner) publishMetric(runID, projectID string, elapsed float64) {
+func (r *Runner) publishMetric(runID, projectID string, elapsed float64, totalReqs, errCount int64, errRate, throughput float64, p50, p95 int64) {
 	payload := map[string]interface{}{
-		"run_id":     runID,
-		"project_id": projectID,
-		"status":     "running",
-		"elapsed":    elapsed,
+		"run_id":         runID,
+		"project_id":     projectID,
+		"status":         "running",
+		"elapsed_sec":    elapsed,
+		"total_requests": totalReqs,
+		"error_count":    errCount,
+		"error_rate":     errRate,
+		"throughput_rps": throughput,
+		"p50_latency_ms": p50,
+		"p95_latency_ms": p95,
 	}
 	data, _ := json.Marshal(payload)
 	_ = r.nc.Publish("results.metric", data)
