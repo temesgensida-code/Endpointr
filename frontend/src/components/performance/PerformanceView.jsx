@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { performanceService } from '../../services/performanceService'
+import LiveRunDrawer from '../execution/LiveRunDrawer'
 
 const TYPES = [
   { id: 'load',       label: 'Load Test',       desc: 'Sustained traffic at target VUs' },
@@ -17,6 +18,7 @@ export default function PerformanceView({ getToken, projectId }) {
   const [selected, setSelected] = useState(null)
   const [runs, setRuns] = useState([])
   const [triggering, setTriggering] = useState(false)
+  const [activeRunId, setActiveRunId] = useState(null)
 
   useEffect(() => { if (projectId) load() }, [projectId])
 
@@ -52,7 +54,10 @@ export default function PerformanceView({ getToken, projectId }) {
     if (!selected) return
     setTriggering(true)
     try {
-      await svc.triggerRun(projectId, selected.id)
+      const res = await svc.triggerRun(projectId, selected.id)
+      if (res?.id) {
+        setActiveRunId(res.id)
+      }
       setTimeout(async () => setRuns(await svc.listRuns(projectId, selected.id)), 500)
     } catch (e) { alert(e.message) }
     finally { setTriggering(false) }
@@ -165,6 +170,21 @@ export default function PerformanceView({ getToken, projectId }) {
           <div className="empty-state" style={{ height: '100%' }}><ZapIcon size={28} /><p>Select a test config to view runs and metrics</p></div>
         )}
       </div>
+
+      {activeRunId && (
+        <LiveRunDrawer
+          getToken={getToken}
+          runId={activeRunId}
+          title={selected?.name}
+          type="perf"
+          onClose={() => setActiveRunId(null)}
+          onCompleted={async () => {
+            if (selected) {
+              setRuns(await svc.listRuns(projectId, selected.id))
+            }
+          }}
+        />
+      )}
     </div>
   )
 }
