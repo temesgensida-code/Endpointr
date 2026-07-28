@@ -22,4 +22,28 @@ urlpatterns = [
     path('api-request/', include('API_request.urls')),
     path('auth/', include('Authentication.urls')),
     path('ai/', include('AI_handler.urls')),
+
+    # Primary user-facing project routes
+    path('projects/', include('projects.urls')),
+    path('projects/<uuid:project_pk>/workflows/', include('workflows.urls')),
+    path('projects/<uuid:project_pk>/performance/', include('performance.urls')),
+    path('projects/<uuid:project_pk>/collections/', include('api_collections.urls')),
+    path('projects/<uuid:project_pk>/monitoring/', include('monitoring.urls')),
+    path('projects/<uuid:project_pk>/contracts/', include('contracts.urls')),
+    path('projects/<uuid:project_pk>/security/', include('security_tools.urls')),
+    path('projects/<uuid:project_pk>/reports/', include('reports.urls')),
+    path('projects/<uuid:project_pk>/documentation/', include('documentation.urls')),
+    path('projects/<uuid:project_pk>/audit/', include('audit.urls')),
+
+    # Standard /api/ prefix routes
+    path('api/projects/', include('projects.urls')),
+    path('api/projects/<uuid:project_pk>/workflows/', include('workflows.urls')),
+    path('api/projects/<uuid:project_pk>/performance/', include('performance.urls')),
+    path('api/projects/<uuid:project_pk>/collections/', include('api_collections.urls')),
+    path('api/projects/<uuid:project_pk>/monitoring/', include('monitoring.urls')),
+    path('api/projects/<uuid:project_pk>/contracts/', include('contracts.urls')),
+    path('api/projects/<uuid:project_pk>/security/', include('security_tools.urls')),
+    path('api/projects/<uuid:project_pk>/reports/', include('reports.urls')),
+    path('api/projects/<uuid:project_pk>/documentation/', include('documentation.urls')),
+    path('api/projects/<uuid:project_pk>/audit/', include('audit.urls')),
 ]
