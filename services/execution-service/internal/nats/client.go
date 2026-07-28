@@ -1,7 +1,9 @@
-// Package nats wraps the nats.go client with retry logic.
+// Package nats wraps the nats.go client with retry logic and helper functions.
 package nats
 
 import (
+	"encoding/json"
+	"fmt"
 	"log"
 	"time"
 
@@ -22,4 +24,16 @@ func Connect(url string) (*natsgo.Conn, error) {
 		}),
 	}
 	return natsgo.Connect(url, opts...)
+}
+
+// Publish marshals payload to JSON and publishes it to the specified NATS subject.
+func Publish(nc *natsgo.Conn, subject string, payload interface{}) error {
+	if nc == nil {
+		return fmt.Errorf("nats conn is nil")
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal payload error: %w", err)
+	}
+	return nc.Publish(subject, data)
 }
