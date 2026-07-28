@@ -162,6 +162,10 @@ GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')
 GEMINI_EMBEDDING_MODEL = os.environ.get('GEMINI_EMBEDDING_MODEL', 'models/gemini-embedding-001')
 CHAT_MEMORY_TURNS = int(os.environ.get('CHAT_MEMORY_TURNS', '12'))
 
+# NATS Message Bus
+NATS_URL = os.environ.get('NATS_URL', 'nats://localhost:4222')
+
+
 
 # CORS (frontend -> backend API)
 CORS_ALLOWED_ORIGINS = [

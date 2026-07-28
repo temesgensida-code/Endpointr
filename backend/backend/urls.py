@@ -17,6 +17,9 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import include, path
 
+from workflows.internal_views import update_workflow_run
+from performance.internal_views import update_perf_run
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api-request/', include('API_request.urls')),
@@ -46,4 +49,8 @@ urlpatterns = [
     path('api/projects/<uuid:project_pk>/reports/', include('reports.urls')),
     path('api/projects/<uuid:project_pk>/documentation/', include('documentation.urls')),
     path('api/projects/<uuid:project_pk>/audit/', include('audit.urls')),
+
+    # Internal routes called by Go execution-service
+    path('internal/workflow-runs/<uuid:run_id>/', update_workflow_run),
+    path('internal/perf-runs/<uuid:run_id>/', update_perf_run),
 ]

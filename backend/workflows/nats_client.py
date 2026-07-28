@@ -29,17 +29,22 @@ def publish_event(subject: str, payload: dict) -> bool:
         return False
 
     try:
-        # nats-py is an async library; we use the sync helper via asyncio.
+        import concurrent.futures
         import asyncio
         import nats
 
-        async def _publish():
-            nc = await nats.connect(nats_url)
-            await nc.publish(subject, json.dumps(payload, default=str).encode())
-            await nc.flush()
-            await nc.close()
+        def _do_publish():
+            async def _publish():
+                nc = await nats.connect(nats_url, connect_timeout=3)
+                await nc.publish(subject, json.dumps(payload, default=str).encode())
+                await nc.flush()
+                await nc.close()
 
-        asyncio.run(_publish())
+            asyncio.run(_publish())
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_do_publish)
+            future.result(timeout=5)
         return True
 
     except Exception as exc:  # pragma: no cover
