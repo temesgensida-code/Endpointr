@@ -9,15 +9,15 @@ https://docs.djangoproject.com/en/6.0/howto/deployment/asgi/
 
 import os
 
-from channels.routing import ProtocolTypeRouter, URLRouter
 from django.core.asgi import get_asgi_application
-
-import AI_handler.routing
-import realtime.routing
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
 
 django_asgi_app = get_asgi_application()
+
+from channels.routing import ProtocolTypeRouter, URLRouter
+import AI_handler.routing
+import realtime.routing
 
 ws_patterns = AI_handler.routing.websocket_urlpatterns + realtime.routing.websocket_urlpatterns
 
