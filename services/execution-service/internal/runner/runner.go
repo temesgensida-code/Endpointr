@@ -10,13 +10,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"slices"
 	"sync"
 	"time"
 
 	natsgo "github.com/nats-io/nats.go"
+	"go.uber.org/zap"
 )
 
 // NATSConn is the subset of nats.Conn used by Runner (makes testing easy).
@@ -29,15 +29,17 @@ type NATSConn interface {
 type Runner struct {
 	nc              NATSConn
 	controlPlaneURL string
+	log             *zap.Logger
 	sem             chan struct{} // bounded concurrency
 	httpClient      *http.Client
 }
 
 // New creates a Runner with workerCount concurrent slots.
-func New(nc NATSConn, controlPlaneURL string, workerCount int) *Runner {
+func New(nc NATSConn, controlPlaneURL string, log *zap.Logger, workerCount int) *Runner {
 	return &Runner{
 		nc:              nc,
 		controlPlaneURL: controlPlaneURL,
+		log:             log,
 		sem:             make(chan struct{}, workerCount),
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
@@ -64,7 +66,7 @@ func (r *Runner) SubscribeAll(ctx context.Context) error {
 		if _, err := r.nc.Subscribe(subj, func(msg *natsgo.Msg) {
 			var payload map[string]interface{}
 			if err := json.Unmarshal(msg.Data, &payload); err != nil {
-				log.Printf("[runner] bad JSON on %s: %v", subj, err)
+				r.log.Error("Bad JSON on subject", zap.String("subject", subj), zap.Error(err))
 				return
 			}
 			// Acquire worker slot (blocks if pool full)
@@ -80,7 +82,7 @@ func (r *Runner) SubscribeAll(ctx context.Context) error {
 		}); err != nil {
 			return fmt.Errorf("subscribe %s: %w", subj, err)
 		}
-		log.Printf("[runner] subscribed to %s", subj)
+		r.log.Info("Subscribed to subject", zap.String("subject", subj))
 	}
 	return nil
 }
@@ -91,14 +93,14 @@ func (r *Runner) handleWorkflowRun(ctx context.Context, payload map[string]inter
 	runID, _ := payload["run_id"].(string)
 	definition, _ := payload["definition"].(map[string]interface{})
 
-	log.Printf("[runner] workflow run %s starting", runID)
+	r.log.Info("Workflow run starting", zap.String("run_id", runID))
 	r.patchRunStatus(runID, "running", "workflow")
 
 	results, err := r.executeWorkflowDefinition(ctx, definition)
 
 	status := "passed"
 	if err != nil {
-		log.Printf("[runner] workflow run %s error: %v", runID, err)
+		r.log.Error("Workflow run error", zap.String("run_id", runID), zap.Error(err))
 		status = "failed"
 	} else {
 		for _, step := range results {
@@ -116,7 +118,7 @@ func (r *Runner) handleWorkflowRun(ctx context.Context, payload map[string]inter
 
 	r.publishCompleted(runID, status, summary)
 	r.patchRunStatus(runID, status, "workflow")
-	log.Printf("[runner] workflow run %s → %s", runID, status)
+	r.log.Info("Workflow run complete", zap.String("run_id", runID), zap.String("status", status))
 }
 
 // executeWorkflowDefinition iterates over DAG nodes and executes HTTP requests.
@@ -246,19 +248,19 @@ func (r *Runner) handlePerfRun(ctx context.Context, payload map[string]interface
 	perfType, _ := payload["type"].(string)
 	cfg, _ := payload["config"].(map[string]interface{})
 
-	log.Printf("[runner] perf run %s (type=%s) starting", runID, perfType)
+	r.log.Info("Perf run starting", zap.String("run_id", runID), zap.String("type", perfType))
 	r.patchRunStatus(runID, "running", "perf")
 
 	summary, err := r.executePerfTest(ctx, perfType, cfg)
 	status := "completed"
 	if err != nil {
 		status = "failed"
-		log.Printf("[runner] perf run %s error: %v", runID, err)
+		r.log.Error("Perf run error", zap.String("run_id", runID), zap.Error(err))
 	}
 
 	r.publishCompleted(runID, status, summary)
 	r.patchPerfRunSummary(runID, status, summary)
-	log.Printf("[runner] perf run %s → %s p95=%v", runID, status, summary["p95_latency_ms"])
+	r.log.Info("Perf run complete", zap.String("run_id", runID), zap.String("status", status))
 }
 
 func (r *Runner) executePerfTest(ctx context.Context, testType string, cfg map[string]interface{}) (map[string]interface{}, error) {
@@ -360,7 +362,7 @@ func (r *Runner) publishCompleted(runID, status string, summary map[string]inter
 	}
 	data, _ := json.Marshal(payload)
 	if err := r.nc.Publish("results.run.completed", data); err != nil {
-		log.Printf("[runner] NATS publish error: %v", err)
+		r.log.Error("NATS publish error", zap.Error(err))
 	}
 }
 
@@ -392,7 +394,7 @@ func (r *Runner) patchJSON(path string, body map[string]interface{}) {
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := r.httpClient.Do(req)
 	if err != nil {
-		log.Printf("[runner] PATCH %s error: %v", url, err)
+		r.log.Error("PATCH internal endpoint error", zap.String("url", url), zap.Error(err))
 		return
 	}
 	defer resp.Body.Close()
