@@ -14,43 +14,47 @@ package main
 
 import (
 	"context"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"go.uber.org/zap"
 
 	natsclient "github.com/endpointr/execution-service/internal/nats"
 	"github.com/endpointr/execution-service/internal/runner"
 )
 
 func main() {
+	logger, _ := zap.NewProduction()
+	defer logger.Sync()
+
 	natsURL := envOrDefault("NATS_URL", "nats://localhost:4222")
 	controlPlaneURL := envOrDefault("CONTROL_PLANE_URL", "http://localhost:8000")
 	workerCount := 8
 
-	log.Printf("[execution-service] connecting to NATS at %s", natsURL)
+	logger.Info("Connecting to NATS", zap.String("nats_url", natsURL))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	nc, err := natsclient.Connect(natsURL)
 	if err != nil {
-		log.Fatalf("[execution-service] NATS connect failed: %v", err)
+		logger.Fatal("NATS connect failed", zap.Error(err))
 	}
 	defer nc.Close()
 
-	r := runner.New(nc, controlPlaneURL, workerCount)
+	r := runner.New(nc, controlPlaneURL, logger, workerCount)
 	if err := r.SubscribeAll(ctx); err != nil {
-		log.Fatalf("[execution-service] subscription failed: %v", err)
+		logger.Fatal("Subscription failed", zap.Error(err))
 	}
 
-	log.Printf("[execution-service] ready — %d workers", workerCount)
+	logger.Info("Execution service ready", zap.Int("workers", workerCount))
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 	<-sigCh
-	log.Println("[execution-service] shutting down…")
+	logger.Info("Shutting down execution service...")
 	cancel()
 	time.Sleep(500 * time.Millisecond)
 }
