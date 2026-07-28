@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	natsgo "github.com/nats-io/nats.go"
@@ -12,9 +14,7 @@ import (
 	natsclient "github.com/endpointr/execution-service/internal/nats"
 )
 
-// WorkflowExecutor runs a React-Flow DAG sequentially (topological sort).
-// Phase 3 implementation: single-chain execution with per-node assertion checks.
-// TODO Phase 4: true parallel DAG execution using goroutines per branch.
+// WorkflowExecutor runs a React-Flow DAG with concurrent branch execution.
 type WorkflowExecutor struct {
 	nc  *natsgo.Conn
 	log *zap.Logger
@@ -28,7 +28,11 @@ func NewWorkflowExecutor(nc *natsgo.Conn, log *zap.Logger) *WorkflowExecutor {
 		hc: &http.Client{
 			Timeout: 30 * time.Second,
 			Transport: &http.Transport{
-				MaxIdleConnsPerHost: 50,
+				MaxIdleConns:        5000,
+				MaxIdleConnsPerHost: 1000,
+				IdleConnTimeout:     90 * time.Second,
+				DisableKeepAlives:   false,
+				ForceAttemptHTTP2:   true,
 			},
 		},
 	}
@@ -63,6 +67,13 @@ type runResultEvent struct {
 	FailedNodes int          `json:"failed_nodes"`
 }
 
+// node is an internal representation of a React-Flow node.
+type node struct {
+	ID   string
+	Type string // "request" | "condition" | "delay"
+	Data map[string]any
+}
+
 func (e *WorkflowExecutor) Execute(p WorkflowRunPayload) {
 	startedAt := time.Now()
 
@@ -71,42 +82,97 @@ func (e *WorkflowExecutor) Execute(p WorkflowRunPayload) {
 		"run_id": p.RunID, "status": "running", "started_at": startedAt,
 	})
 
-	nodes := extractNodes(p.Definition)
-	nodeResults := make([]nodeResult, 0, len(nodes))
-	passed, failed := 0, 0
+	nodeMap, inDegree, graph := parseDAG(p.Definition)
+	totalNodes := len(nodeMap)
+	if totalNodes == 0 {
+		e.finishRun(p, startedAt, nil, 0, 0, "passed")
+		return
+	}
+
+	var (
+		mu          sync.Mutex
+		nodeResults = make([]nodeResult, 0, totalNodes)
+		passed      int32
+		failed      int32
+		wg          sync.WaitGroup
+	)
+
+	readyCh := make(chan string, totalNodes)
+
+	// Identify root nodes (in-degree == 0)
+	for id, deg := range inDegree {
+		if deg == 0 {
+			readyCh <- id
+		}
+	}
 
 	ctx := context.Background()
-	for _, node := range nodes {
-		result := e.executeNode(ctx, node)
-		nodeResults = append(nodeResults, result)
-		if result.Status == "passed" {
-			passed++
-		} else if result.Status == "failed" {
-			failed++
-			// Publish per-node live event for real-time dashboard
-			_ = natsclient.Publish(e.nc, "results.metric", map[string]any{
-				"run_id":      p.RunID,
-				"node_id":     result.NodeID,
-				"status":      result.Status,
-				"duration_ms": result.DurationMs,
-			})
+
+	var processNode func(nodeID string)
+	processNode = func(nodeID string) {
+		defer wg.Done()
+
+		n, exists := nodeMap[nodeID]
+		if !exists {
+			return
 		}
-		// Stream per-node live update
+
+		result := e.executeNode(ctx, n)
+
+		mu.Lock()
+		nodeResults = append(nodeResults, result)
+		mu.Unlock()
+
+		if result.Status == "passed" {
+			atomic.AddInt32(&passed, 1)
+		} else if result.Status == "failed" {
+			atomic.AddInt32(&failed, 1)
+		}
+
+		// Stream per-node live metric update
 		_ = natsclient.Publish(e.nc, "results.metric", map[string]any{
 			"run_id":      p.RunID,
 			"node_id":     result.NodeID,
 			"status":      result.Status,
 			"duration_ms": result.DurationMs,
 		})
+
+		// Decrement in-degree for downstream children and trigger ready nodes concurrently
+		mu.Lock()
+		children := graph[nodeID]
+		for _, childID := range children {
+			inDegree[childID]--
+			if inDegree[childID] == 0 {
+				wg.Add(1)
+				go processNode(childID)
+			}
+		}
+		mu.Unlock()
 	}
 
+	// Dispatch root nodes concurrently
+	for len(readyCh) > 0 {
+		rootID := <-readyCh
+		wg.Add(1)
+		go processNode(rootID)
+	}
+
+	wg.Wait()
+
 	finalStatus := "passed"
-	if failed > 0 && passed == 0 {
+	fCount := atomic.LoadInt32(&failed)
+	pCount := atomic.LoadInt32(&passed)
+
+	if fCount > 0 && pCount == 0 {
 		finalStatus = "failed"
-	} else if failed > 0 {
+	} else if fCount > 0 {
 		finalStatus = "partial"
 	}
 
+	e.finishRun(p, startedAt, nodeResults, int(pCount), int(fCount), finalStatus)
+}
+
+func (e *WorkflowExecutor) finishRun(p WorkflowRunPayload, startedAt time.Time, results []nodeResult, passed, failed int, finalStatus string) {
 	event := runResultEvent{
 		RunID:       p.RunID,
 		WorkflowID:  p.WorkflowID,
@@ -114,8 +180,8 @@ func (e *WorkflowExecutor) Execute(p WorkflowRunPayload) {
 		Status:      finalStatus,
 		StartedAt:   startedAt,
 		FinishedAt:  time.Now(),
-		NodeResults: nodeResults,
-		TotalNodes:  len(nodes),
+		NodeResults: results,
+		TotalNodes:  len(results),
 		PassedNodes: passed,
 		FailedNodes: failed,
 	}
@@ -124,7 +190,7 @@ func (e *WorkflowExecutor) Execute(p WorkflowRunPayload) {
 		e.log.Error("Failed to publish run result", zap.String("run_id", p.RunID), zap.Error(err))
 	}
 
-	e.log.Info("Workflow run complete",
+	e.log.Info("Workflow run complete (parallel DAG execution)",
 		zap.String("run_id", p.RunID),
 		zap.String("status", finalStatus),
 		zap.Int("passed", passed),
@@ -132,16 +198,12 @@ func (e *WorkflowExecutor) Execute(p WorkflowRunPayload) {
 	)
 }
 
-// node is an internal representation of a React-Flow node.
-type node struct {
-	ID     string
-	Type   string // "request" | "condition" | "delay"
-	Data   map[string]any
-}
+func parseDAG(definition map[string]any) (map[string]node, map[string]int, map[string][]string) {
+	nodeMap := make(map[string]node)
+	inDegree := make(map[string]int)
+	graph := make(map[string][]string)
 
-func extractNodes(definition map[string]any) []node {
 	rawNodes, _ := definition["nodes"].([]any)
-	result := make([]node, 0, len(rawNodes))
 	for _, rn := range rawNodes {
 		m, ok := rn.(map[string]any)
 		if !ok {
@@ -150,9 +212,27 @@ func extractNodes(definition map[string]any) []node {
 		id, _ := m["id"].(string)
 		nodeType, _ := m["type"].(string)
 		data, _ := m["data"].(map[string]any)
-		result = append(result, node{ID: id, Type: nodeType, Data: data})
+		if id != "" {
+			nodeMap[id] = node{ID: id, Type: nodeType, Data: data}
+			inDegree[id] = 0
+		}
 	}
-	return result
+
+	rawEdges, _ := definition["edges"].([]any)
+	for _, re := range rawEdges {
+		m, ok := re.(map[string]any)
+		if !ok {
+			continue
+		}
+		src, _ := m["source"].(string)
+		target, _ := m["target"].(string)
+		if src != "" && target != "" {
+			graph[src] = append(graph[src], target)
+			inDegree[target]++
+		}
+	}
+
+	return nodeMap, inDegree, graph
 }
 
 func (e *WorkflowExecutor) executeNode(ctx context.Context, n node) nodeResult {
