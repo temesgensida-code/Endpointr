@@ -21,10 +21,24 @@ import (
 type PerfExecutor struct {
 	nc  *natsgo.Conn
 	log *zap.Logger
+	hc  *http.Client
 }
 
 func NewPerfExecutor(nc *natsgo.Conn, log *zap.Logger) *PerfExecutor {
-	return &PerfExecutor{nc: nc, log: log}
+	return &PerfExecutor{
+		nc:  nc,
+		log: log,
+		hc: &http.Client{
+			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        10000,
+				MaxIdleConnsPerHost: 2000,
+				IdleConnTimeout:     90 * time.Second,
+				DisableKeepAlives:   false,
+				ForceAttemptHTTP2:   true,
+			},
+		},
+	}
 }
 
 type perfSample struct {
@@ -112,7 +126,7 @@ func (e *PerfExecutor) runLoad(p PerfRunPayload) (map[string]any, string) {
 	}()
 
 	activeVUs := 0
-	hc := &http.Client{Timeout: 10 * time.Second}
+	hc := e.hc
 
 	runVU := func() {
 		defer vuWg.Done()
@@ -181,7 +195,7 @@ func (e *PerfExecutor) runRateLimit(p PerfRunPayload) (map[string]any, string) {
 		return map[string]any{"error": "target_url required"}, "failed"
 	}
 
-	hc := &http.Client{Timeout: 5 * time.Second}
+	hc := e.hc
 	interval := time.Second / time.Duration(rps)
 	deadline := time.Now().Add(time.Duration(durationSec) * time.Second)
 
@@ -230,7 +244,7 @@ func (e *PerfExecutor) runFuzz(p PerfRunPayload) (map[string]any, string) {
 		string(make([]byte, 10000)), // large payload
 	}
 
-	hc := &http.Client{Timeout: 5 * time.Second}
+	hc := e.hc
 	var anomalies []map[string]any
 
 	for i := 0; i < iterations; i++ {
