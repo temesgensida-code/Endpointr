@@ -8,7 +8,6 @@ import (
 	natsgo "github.com/nats-io/nats.go"
 	"go.uber.org/zap"
 
-	natsclient "github.com/endpointr/execution-service/internal/nats"
 )
 
 // NATS subjects the dispatcher subscribes to.
