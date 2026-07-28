@@ -1,196 +1,490 @@
 import { useState, useEffect } from 'react'
 import { performanceService } from '../../services/performanceService'
+import { projectsService } from '../../services/projectsService'
 import LiveRunDrawer from '../execution/LiveRunDrawer'
 
-const TYPES = [
-  { id: 'load',       label: 'Load Test',       desc: 'Sustained traffic at target VUs' },
-  { id: 'stress',     label: 'Stress Test',     desc: 'Push beyond capacity to find breaking point' },
-  { id: 'rate_limit', label: 'Rate Limit Test', desc: 'Verify throttling behaviour' },
-  { id: 'fuzz',       label: 'Fuzz Test',       desc: 'Mutate inputs to find edge cases' },
+const TEST_TYPES = [
+  { id: 'load',       label: 'Load Test',       desc: 'Sustained traffic at target VUs & duration', color: 'var(--accent-bright)' },
+  { id: 'stress',     label: 'Stress Test',     desc: 'Progressive ramp-up to find breaking point', color: 'var(--yellow)' },
+  { id: 'rate_limit', label: 'Rate Limit Test', desc: 'Verify API throttling & 429 response limits', color: 'var(--blue)' },
+  { id: 'fuzz',       label: 'Fuzz Test',       desc: 'Mutate payloads to discover edge-case errors', color: 'var(--green)' },
 ]
 
+const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
+
 export default function PerformanceView({ getToken, projectId, onNavigate }) {
-  const svc = performanceService(getToken)
+  const perfSvc = performanceService(getToken)
+  const projSvc = projectsService(getToken)
+
+  const [projects, setProjects] = useState([])
+  const [currentProjectId, setCurrentProjectId] = useState(projectId)
   const [configs, setConfigs] = useState([])
   const [loading, setLoading] = useState(true)
-  const [showForm, setShowForm] = useState(false)
-  const [draft, setDraft] = useState({ name: '', type: 'load', target_url: '', vus: 10, duration_seconds: 30 })
-  const [selected, setSelected] = useState(null)
+  const [selectedConfig, setSelectedConfig] = useState(null)
   const [runs, setRuns] = useState([])
   const [triggering, setTriggering] = useState(false)
   const [activeRunId, setActiveRunId] = useState(null)
+  const [activeTab, setActiveTab] = useState('configs') // 'configs' | 'regression'
 
-  useEffect(() => { if (projectId) load() }, [projectId])
+  // Form state for creating new test configuration
+  const [showForm, setShowForm] = useState(false)
+  const [draft, setDraft] = useState({
+    name: '',
+    type: 'load',
+    target_url: 'https://httpbin.org/get',
+    method: 'GET',
+    vus: 10,
+    duration_seconds: 15,
+    ramp_up_seconds: 3,
+    target_rps: 50,
+    headers: '{\n  "Accept": "application/json"\n}',
+    body: '{\n  "key": "value"\n}'
+  })
 
-  async function load() {
+  // Regression state
+  const [runA, setRunA] = useState('')
+  const [runB, setRunB] = useState('')
+  const [regressionReport, setRegressionReport] = useState(null)
+  const [comparing, setComparing] = useState(false)
+
+  // Auto-fetch project list if none provided
+  useEffect(() => {
+    async function initProjects() {
+      try {
+        const list = await projSvc.list()
+        setProjects(list)
+        if (!currentProjectId && list.length > 0) {
+          setCurrentProjectId(list[0].id)
+        }
+      } catch (err) {
+        console.error('Failed to list projects:', err)
+      }
+    }
+    initProjects()
+  }, [])
+
+  useEffect(() => {
+    if (projectId) {
+      setCurrentProjectId(projectId)
+    }
+  }, [projectId])
+
+  useEffect(() => {
+    if (currentProjectId) {
+      loadConfigs()
+    } else {
+      setLoading(false)
+    }
+  }, [currentProjectId])
+
+  async function loadConfigs() {
     setLoading(true)
-    try { setConfigs(await svc.listConfigs(projectId)) } catch {} finally { setLoading(false) }
+    try {
+      const data = await perfSvc.listConfigs(currentProjectId)
+      setConfigs(data)
+      if (data.length > 0 && !selectedConfig) {
+        openConfig(data[0])
+      }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function createConfig() {
     if (!draft.name.trim() || !draft.target_url.trim()) return
-    const cfg = await svc.createConfig(projectId, {
-      name: draft.name, type: draft.type,
-      config: { vus: Number(draft.vus), duration_seconds: Number(draft.duration_seconds), target_url: draft.target_url, method: 'GET' },
-    })
-    setConfigs(p => [cfg, ...p])
-    setDraft({ name: '', type: 'load', target_url: '', vus: 10, duration_seconds: 30 })
-    setShowForm(false)
+    let parsedHeaders = {}
+    try {
+      if (draft.headers.trim()) parsedHeaders = JSON.parse(draft.headers)
+    } catch {
+      alert('Invalid JSON in Headers')
+      return
+    }
+
+    try {
+      const payload = {
+        name: draft.name,
+        type: draft.type,
+        config: {
+          target_url: draft.target_url,
+          method: draft.method,
+          vus: Number(draft.vus),
+          duration_seconds: Number(draft.duration_seconds),
+          ramp_up_seconds: Number(draft.ramp_up_seconds),
+          target_rps: Number(draft.target_rps),
+          headers: parsedHeaders,
+          body: ['POST', 'PUT', 'PATCH'].includes(draft.method) ? draft.body : undefined
+        }
+      }
+      const newCfg = await perfSvc.createConfig(currentProjectId, payload)
+      setConfigs(prev => [newCfg, ...prev])
+      openConfig(newCfg)
+      setShowForm(false)
+    } catch (e) {
+      alert('Failed to save config: ' + e.message)
+    }
   }
 
   async function openConfig(cfg) {
-    setSelected(cfg)
-    try { setRuns(await svc.listRuns(projectId, cfg.id)) } catch { setRuns([]) }
+    setSelectedConfig(cfg)
+    try {
+      const runList = await perfSvc.listRuns(currentProjectId, cfg.id)
+      setRuns(runList)
+    } catch {
+      setRuns([])
+    }
   }
 
   async function deleteConfig(id) {
-    if (!confirm('Delete this test configuration?')) return
-    await svc.deleteConfig(projectId, id)
-    setConfigs(p => p.filter(c => c.id !== id))
-    if (selected?.id === id) setSelected(null)
+    if (!confirm('Are you sure you want to delete this test config?')) return
+    await perfSvc.deleteConfig(currentProjectId, id)
+    setConfigs(prev => prev.filter(c => c.id !== id))
+    if (selectedConfig?.id === id) {
+      setSelectedConfig(null)
+      setRuns([])
+    }
   }
 
   async function triggerRun() {
-    if (!selected) return
+    if (!selectedConfig) return
     setTriggering(true)
     try {
-      const res = await svc.triggerRun(projectId, selected.id)
-      if (res?.id) {
-        setActiveRunId(res.id)
+      const res = await perfSvc.triggerRun(currentProjectId, selectedConfig.id)
+      if (res?.run_id) {
+        setActiveRunId(res.run_id)
       }
-      setTimeout(async () => setRuns(await svc.listRuns(projectId, selected.id)), 500)
-    } catch (e) { alert(e.message) }
-    finally { setTriggering(false) }
+      setTimeout(async () => {
+        const updatedRuns = await perfSvc.listRuns(currentProjectId, selectedConfig.id)
+        setRuns(updatedRuns)
+      }, 600)
+    } catch (e) {
+      alert('Error launching test: ' + e.message)
+    } finally {
+      setTriggering(false)
+    }
   }
 
-  if (!projectId) return (
-    <div className="empty-state" style={{ height: '100%' }}>
-      <ZapIcon size={32} />
-      <p style={{ marginBottom: 12 }}>Select a project first to view and run performance tests</p>
-      {onNavigate && (
-        <button className="btn btn-primary btn-sm" onClick={() => onNavigate('projects')}>
-          Go to Projects
-        </button>
-      )}
-    </div>
-  )
+  async function runRegression() {
+    if (!runA || !runB) return
+    setComparing(true)
+    try {
+      const report = await perfSvc.getRegressionReport(currentProjectId, runA, runB)
+      setRegressionReport(report)
+    } catch (e) {
+      alert('Failed to calculate regression: ' + e.message)
+    } finally {
+      setComparing(false)
+    }
+  }
+
   if (loading) return <LoadingSkeleton />
 
-  const latestCompleted = runs.find(r => r.status === 'completed' && r.summary)
-
   return (
-    <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
-      {/* List */}
-      <div style={{ width: 300, flexShrink: 0, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div style={{ padding: 'var(--s3) var(--s4)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 'var(--s2)' }}>
-          <h2 style={{ flex: 1, fontSize: 12 }}>Test Configs</h2>
-          <button className="btn btn-primary btn-xs" onClick={() => setShowForm(p => !p)}>+ New</button>
-        </div>
-        {showForm && (
-          <div style={{ padding: 'var(--s3)', borderBottom: '1px solid var(--border)', background: 'var(--bg-overlay)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <input value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} placeholder="Test name" style={{ fontSize: 12 }} />
-            <select value={draft.type} onChange={e => setDraft(d => ({ ...d, type: e.target.value }))} style={{ fontSize: 12 }}>
-              {TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
-            </select>
-            <input value={draft.target_url} onChange={e => setDraft(d => ({ ...d, target_url: e.target.value }))} placeholder="Target URL" style={{ fontSize: 11, fontFamily: 'var(--font-mono)' }} />
-            <div style={{ display: 'flex', gap: 6 }}>
-              <div style={{ flex: 1 }}>
-                <label style={{ fontSize: 10, color: 'var(--tx-muted)' }}>VUs</label>
-                <input type="number" value={draft.vus} onChange={e => setDraft(d => ({ ...d, vus: e.target.value }))} style={{ fontSize: 12 }} />
-              </div>
-              <div style={{ flex: 1 }}>
-                <label style={{ fontSize: 10, color: 'var(--tx-muted)' }}>Duration (s)</label>
-                <input type="number" value={draft.duration_seconds} onChange={e => setDraft(d => ({ ...d, duration_seconds: e.target.value }))} style={{ fontSize: 12 }} />
-              </div>
-            </div>
-            <button className="btn btn-primary btn-xs" onClick={createConfig}>Save Config</button>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: 'var(--bg-base)' }}>
+      {/* Top Header & Project Selector Bar */}
+      <div style={{
+        padding: 'var(--s3) var(--s5)',
+        borderBottom: '1px solid var(--border)',
+        background: 'var(--bg-raised)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexShrink: 0
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s4)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ZapIcon size={20} color="var(--accent-bright)" />
+            <h1 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>Performance Engine</h1>
           </div>
-        )}
-        <div style={{ flex: 1, overflow: 'auto', padding: 'var(--s2)' }}>
-          {configs.length === 0 && <div className="empty-state" style={{ padding: 'var(--s6)' }}><ZapIcon /><p>No test configs yet</p></div>}
-          {configs.map(cfg => (
-            <div key={cfg.id} className={`card card-hover ${selected?.id === cfg.id ? 'card-active' : ''}`}
-              style={{ padding: 10, marginBottom: 6, cursor: 'pointer' }} onClick={() => openConfig(cfg)}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span className="badge badge-violet">{TYPES.find(t => t.id === cfg.type)?.label || cfg.type}</span>
-                <button className="btn-icon" style={{ width: 18, height: 18, marginLeft: 'auto' }} onClick={e => { e.stopPropagation(); deleteConfig(cfg.id) }}>
-                  <TrashIcon size={10} />
-                </button>
-              </div>
-              <p style={{ fontSize: 12, fontWeight: 500, color: 'var(--tx-primary)', marginTop: 6 }}>{cfg.name}</p>
-              <p style={{ fontSize: 10, color: 'var(--tx-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cfg.config?.target_url}</p>
-            </div>
-          ))}
+
+          <div className="tabs" style={{ background: 'var(--bg-subtle)', padding: 3, borderRadius: 'var(--r2)' }}>
+            <button className={`tab ${activeTab === 'configs' ? 'active' : ''}`} onClick={() => setActiveTab('configs')}>
+              Test Configurations
+            </button>
+            <button className={`tab ${activeTab === 'regression' ? 'active' : ''}`} onClick={() => setActiveTab('regression')}>
+              Regression Analytics
+            </button>
+          </div>
+        </div>
+
+        {/* Project Dropdown Selector */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 11, color: 'var(--tx-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Active Project:</span>
+          <select
+            value={currentProjectId || ''}
+            onChange={e => setCurrentProjectId(e.target.value)}
+            style={{ width: 180, fontSize: 12, padding: '4px 8px' }}
+          >
+            {projects.length === 0 && <option value="">No projects found</option>}
+            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          {onNavigate && (
+            <button className="btn btn-ghost btn-xs" onClick={() => onNavigate('projects')}>
+              + New Project
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Detail */}
-      <div style={{ flex: 1, overflow: 'auto', padding: 'var(--s5)' }}>
-        {selected ? (
-          <div style={{ maxWidth: 720 }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 'var(--s5)' }}>
+      {/* Main View Area */}
+      {!currentProjectId ? (
+        <div className="empty-state" style={{ flex: 1 }}>
+          <ZapIcon size={36} />
+          <h2>No Project Selected</h2>
+          <p style={{ maxWidth: 320, marginBottom: 16 }}>Create or select a project to configure high-concurrency load and stress tests.</p>
+          {onNavigate && (
+            <button className="btn btn-primary" onClick={() => onNavigate('projects')}>
+              Manage Projects
+            </button>
+          )}
+        </div>
+      ) : activeTab === 'regression' ? (
+        /* Regression Comparison Tab */
+        <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--s6)', maxWidth: 880, margin: '0 auto', width: '100%' }}>
+          <h2 style={{ marginBottom: 6 }}>Performance Regression Comparison</h2>
+          <p style={{ fontSize: 12, color: 'var(--tx-muted)', marginBottom: 20 }}>
+            Compare baseline run metrics against candidate runs to detect latency regressions and throughput changes.
+          </p>
+
+          <div className="card" style={{ padding: 'var(--s5)', marginBottom: 'var(--s6)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12, alignItems: 'flex-end' }}>
               <div>
-                <h1 style={{ fontSize: 18, marginBottom: 4 }}>{selected.name}</h1>
-                <p style={{ fontSize: 12, color: 'var(--tx-muted)', fontFamily: 'var(--font-mono)' }}>
-                  {selected.config?.vus} VUs · {selected.config?.duration_seconds}s · {selected.config?.target_url}
-                </p>
+                <label style={{ fontSize: 11, color: 'var(--tx-muted)', display: 'block', marginBottom: 4 }}>Baseline Run ID (Run A)</label>
+                <input value={runA} onChange={e => setRunA(e.target.value)} placeholder="UUID of baseline run" style={{ fontFamily: 'var(--font-mono)' }} />
               </div>
-              <button className="btn btn-primary" onClick={triggerRun} disabled={triggering}>
-                {triggering ? <div className="spinner" style={{ width: 13, height: 13 }} /> : <PlayIcon size={13} />}
-                Run Test
+              <div>
+                <label style={{ fontSize: 11, color: 'var(--tx-muted)', display: 'block', marginBottom: 4 }}>Candidate Run ID (Run B)</label>
+                <input value={runB} onChange={e => setRunB(e.target.value)} placeholder="UUID of candidate run" style={{ fontFamily: 'var(--font-mono)' }} />
+              </div>
+              <button className="btn btn-primary" onClick={runRegression} disabled={comparing || !runA || !runB}>
+                {comparing ? <div className="spinner" /> : 'Compare Runs'}
+              </button>
+            </div>
+          </div>
+
+          {regressionReport && (
+            <div className="animate-fade">
+              <h3 style={{ marginBottom: 12 }}>Comparison Results</h3>
+              <div className="card" style={{ padding: 'var(--s5)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+                  {Object.entries(regressionReport.diff || {}).map(([metric, data]) => (
+                    <div key={metric} className="kpi-tile">
+                      <span className="kpi-label">{metric.replace(/_/g, ' ')}</span>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 4 }}>
+                        <span className="kpi-value" style={{ fontSize: 20 }}>{data.run_b}</span>
+                        {data.delta_pct !== null && (
+                          <span style={{ fontSize: 12, fontWeight: 600, color: data.delta_pct > 0 ? 'var(--red)' : 'var(--green)' }}>
+                            {data.delta_pct > 0 ? `+${data.delta_pct}%` : `${data.delta_pct}%`}
+                          </span>
+                        )}
+                      </div>
+                      <span className="kpi-sub" style={{ fontSize: 10, color: 'var(--tx-muted)', marginTop: 4 }}>
+                        Baseline: {data.run_a}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        /* Test Configs Tab (Main Layout) */
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+          {/* Left Sidebar: Config List & Creator */}
+          <div style={{ width: 320, flexShrink: 0, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ padding: 'var(--s3) var(--s4)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h2 style={{ fontSize: 12 }}>Test Configurations ({configs.length})</h2>
+              <button className="btn btn-primary btn-xs" onClick={() => setShowForm(p => !p)}>
+                {showForm ? 'Cancel' : '+ New Config'}
               </button>
             </div>
 
-            {/* KPI tiles from latest completed run */}
-            {latestCompleted && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--s3)', marginBottom: 'var(--s5)' }}>
-                <KpiTile label="P50 Latency" value={`${latestCompleted.summary.p50_latency_ms ?? '–'}ms`} />
-                <KpiTile label="P95 Latency" value={`${latestCompleted.summary.p95_latency_ms ?? '–'}ms`} accent />
-                <KpiTile label="Error Rate" value={`${(latestCompleted.summary.error_rate ?? 0).toFixed(2)}%`}
-                  danger={latestCompleted.summary.error_rate > 1} />
-                <KpiTile label="Throughput" value={`${(latestCompleted.summary.throughput_rps ?? 0).toFixed(1)} rps`} />
+            {/* Inline Config Creator Form */}
+            {showForm && (
+              <div style={{ padding: 'var(--s4)', borderBottom: '1px solid var(--border)', background: 'var(--bg-overlay)', overflowY: 'auto', maxHeight: '60vh' }}>
+                <h3 style={{ marginBottom: 8, fontSize: 11 }}>Create Performance Test</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <input value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} placeholder="Test Name (e.g. Auth Load Test)" />
+                  <select value={draft.type} onChange={e => setDraft(d => ({ ...d, type: e.target.value }))}>
+                    {TEST_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+                  </select>
+
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <select value={draft.method} onChange={e => setDraft(d => ({ ...d, method: e.target.value }))} style={{ width: 80 }}>
+                      {HTTP_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                    <input value={draft.target_url} onChange={e => setDraft(d => ({ ...d, target_url: e.target.value }))} placeholder="https://api.example.com/endpoint" style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }} />
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 10, color: 'var(--tx-muted)' }}>VUs (Concurrency)</label>
+                      <input type="number" value={draft.vus} onChange={e => setDraft(d => ({ ...d, vus: e.target.value }))} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 10, color: 'var(--tx-muted)' }}>Duration (sec)</label>
+                      <input type="number" value={draft.duration_seconds} onChange={e => setDraft(d => ({ ...d, duration_seconds: e.target.value }))} />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: 10, color: 'var(--tx-muted)' }}>JSON Headers</label>
+                    <textarea value={draft.headers} onChange={e => setDraft(d => ({ ...d, headers: e.target.value }))} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, height: 50 }} />
+                  </div>
+
+                  {['POST', 'PUT', 'PATCH'].includes(draft.method) && (
+                    <div>
+                      <label style={{ fontSize: 10, color: 'var(--tx-muted)' }}>JSON Body Payload</label>
+                      <textarea value={draft.body} onChange={e => setDraft(d => ({ ...d, body: e.target.value }))} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, height: 60 }} />
+                    </div>
+                  )}
+
+                  <button className="btn btn-primary btn-sm" onClick={createConfig} style={{ marginTop: 4 }}>
+                    Save & Initialize
+                  </button>
+                </div>
               </div>
             )}
 
-            {/* Run history */}
-            <div>
-              <span className="section-label" style={{ padding: 0, marginBottom: 10 }}>Run History</span>
-              {runs.length === 0 && <p style={{ fontSize: 12, color: 'var(--tx-muted)' }}>No runs yet — click Run Test to start</p>}
-              {runs.map(r => (
-                <div key={r.id} className="card" style={{ marginBottom: 8, padding: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <StatusBadge status={r.status} />
-                    <code style={{ fontSize: 11, color: 'var(--tx-muted)' }}>{r.id.slice(0, 12)}</code>
-                    <span style={{ fontSize: 11, color: 'var(--tx-muted)', marginLeft: 'auto' }}>
-                      {r.created_at && new Date(r.created_at).toLocaleString()}
-                    </span>
-                  </div>
-                  {r.summary && (
-                    <div style={{ display: 'flex', gap: 'var(--s4)', marginTop: 8, fontSize: 11, color: 'var(--tx-secondary)', fontFamily: 'var(--font-mono)' }}>
-                      <span>p95: {r.summary.p95_latency_ms}ms</span>
-                      <span>err: {(r.summary.error_rate ?? 0).toFixed(2)}%</span>
-                      <span>rps: {(r.summary.throughput_rps ?? 0).toFixed(1)}</span>
-                    </div>
-                  )}
+            {/* Config List */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--s2)' }}>
+              {configs.length === 0 ? (
+                <div className="empty-state" style={{ padding: 'var(--s6)' }}>
+                  <ZapIcon size={24} />
+                  <p style={{ fontSize: 12 }}>No test configurations defined yet.</p>
                 </div>
-              ))}
+              ) : (
+                configs.map(cfg => {
+                  const typeObj = TEST_TYPES.find(t => t.id === cfg.type)
+                  const isSelected = selectedConfig?.id === cfg.id
+                  return (
+                    <div
+                      key={cfg.id}
+                      className={`card card-hover ${isSelected ? 'card-active' : ''}`}
+                      style={{ padding: '10px 12px', marginBottom: 6, cursor: 'pointer' }}
+                      onClick={() => openConfig(cfg)}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <span className="badge" style={{ background: 'var(--bg-subtle)', color: typeObj?.color || 'var(--tx-primary)' }}>
+                          {typeObj?.label || cfg.type}
+                        </span>
+                        <button className="btn-icon" style={{ width: 20, height: 20 }} onClick={e => { e.stopPropagation(); deleteConfig(cfg.id) }}>
+                          <TrashIcon size={11} />
+                        </button>
+                      </div>
+                      <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--tx-primary)', margin: '4px 0 2px' }}>{cfg.name}</p>
+                      <p style={{ fontSize: 10, color: 'var(--tx-muted)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {cfg.config?.method || 'GET'} · {cfg.config?.target_url}
+                      </p>
+                    </div>
+                  )
+                })
+              )}
             </div>
           </div>
-        ) : (
-          <div className="empty-state" style={{ height: '100%' }}><ZapIcon size={28} /><p>Select a test config to view runs and metrics</p></div>
-        )}
-      </div>
 
+          {/* Right Main Pane: Selected Config Analytics & Execution Details */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--s5)' }}>
+            {selectedConfig ? (
+              <div style={{ maxWidth: 800, margin: '0 auto' }}>
+                {/* Detail Header */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 'var(--s5)' }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <h1 style={{ fontSize: 18, margin: 0 }}>{selectedConfig.name}</h1>
+                      <span className="badge badge-violet">{selectedConfig.type}</span>
+                    </div>
+                    <p style={{ fontSize: 12, color: 'var(--tx-muted)', fontFamily: 'var(--font-mono)' }}>
+                      <span className={`method method-${selectedConfig.config?.method || 'GET'}`} style={{ marginRight: 6 }}>
+                        {selectedConfig.config?.method || 'GET'}
+                      </span>
+                      {selectedConfig.config?.target_url} · {selectedConfig.config?.vus || 10} VUs · {selectedConfig.config?.duration_seconds || 15}s duration
+                    </p>
+                  </div>
+
+                  <button className="btn btn-primary" onClick={triggerRun} disabled={triggering}>
+                    {triggering ? <div className="spinner" /> : <PlayIcon size={14} />}
+                    Launch Test Run
+                  </button>
+                </div>
+
+                {/* Latest KPI Tiles */}
+                {runs.find(r => r.status === 'completed' && r.summary) && (
+                  <div style={{ marginBottom: 'var(--s6)' }}>
+                    <span className="section-label" style={{ paddingLeft: 0, marginBottom: 10 }}>Latest Run Metrics</span>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+                      {(() => {
+                        const s = runs.find(r => r.status === 'completed' && r.summary)?.summary || {}
+                        return (
+                          <>
+                            <KpiTile label="P50 Latency" value={s.p50_latency_ms ? `${s.p50_latency_ms}ms` : '–'} />
+                            <KpiTile label="P95 Latency" value={s.p95_latency_ms ? `${s.p95_latency_ms}ms` : '–'} accent />
+                            <KpiTile label="Error Rate" value={s.error_rate !== undefined ? `${s.error_rate.toFixed(2)}%` : '–'} danger={s.error_rate > 1} />
+                            <KpiTile label="Throughput" value={s.throughput_rps ? `${s.throughput_rps.toFixed(1)} rps` : '–'} />
+                          </>
+                        )
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+                {/* Run History List */}
+                <div>
+                  <span className="section-label" style={{ paddingLeft: 0, marginBottom: 10 }}>Execution History ({runs.length})</span>
+                  {runs.length === 0 ? (
+                    <div className="card" style={{ padding: 'var(--s5)', textOverflow: 'ellipsis', textAlign: 'center', color: 'var(--tx-muted)' }}>
+                      No runs launched yet. Click "Launch Test Run" to start high-concurrency execution.
+                    </div>
+                  ) : (
+                    runs.map(r => (
+                      <div key={r.id} className="card" style={{ padding: '12px 16px', marginBottom: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <StatusBadge status={r.status} />
+                            <code style={{ fontSize: 11, color: 'var(--tx-secondary)' }}>Run #{r.id.slice(0, 12)}</code>
+                          </div>
+                          <span style={{ fontSize: 11, color: 'var(--tx-muted)', fontFamily: 'var(--font-mono)' }}>
+                            {r.created_at ? new Date(r.created_at).toLocaleString() : ''}
+                          </span>
+                        </div>
+
+                        {r.summary && (
+                          <div style={{ display: 'flex', gap: 20, marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--border)', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+                            <span><strong>P95:</strong> {r.summary.p95_latency_ms}ms</span>
+                            <span><strong>Errors:</strong> {(r.summary.error_rate ?? 0).toFixed(2)}%</span>
+                            <span><strong>Throughput:</strong> {(r.summary.throughput_rps ?? 0).toFixed(1)} rps</span>
+                            <span><strong>Total Req:</strong> {r.summary.total_requests ?? '–'}</span>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="empty-state" style={{ height: '100%' }}>
+                <ZapIcon size={32} />
+                <p>Select a test configuration from the left panel to inspect metrics and run load tests.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Live Streaming Drawer */}
       {activeRunId && (
         <LiveRunDrawer
           getToken={getToken}
           runId={activeRunId}
-          title={selected?.name}
+          title={selectedConfig?.name}
           type="perf"
           onClose={() => setActiveRunId(null)}
           onCompleted={async () => {
-            if (selected) {
-              setRuns(await svc.listRuns(projectId, selected.id))
+            if (selectedConfig && currentProjectId) {
+              const updated = await perfSvc.listRuns(currentProjectId, selectedConfig.id)
+              setRuns(updated)
             }
           }}
         />
@@ -201,9 +495,11 @@ export default function PerformanceView({ getToken, projectId, onNavigate }) {
 
 function KpiTile({ label, value, accent, danger }) {
   return (
-    <div className="kpi-tile">
+    <div className="kpi-tile" style={{ padding: '12px 14px' }}>
       <span className="kpi-label">{label}</span>
-      <span className="kpi-value" style={{ color: danger ? 'var(--red)' : accent ? 'var(--accent-bright)' : 'var(--tx-primary)' }}>{value}</span>
+      <span className="kpi-value" style={{ fontSize: 22, color: danger ? 'var(--red)' : accent ? 'var(--accent-bright)' : 'var(--tx-primary)' }}>
+        {value}
+      </span>
     </div>
   )
 }
@@ -214,9 +510,17 @@ function StatusBadge({ status }) {
 }
 
 function LoadingSkeleton() {
-  return <div style={{ padding: 'var(--s5)' }}>{[1,2,3].map(i => <div key={i} className="skeleton" style={{ height: 56, borderRadius: 8, marginBottom: 8 }} />)}</div>
+  return <div style={{ padding: 'var(--s5)' }}>{[1, 2, 3].map(i => <div key={i} className="skeleton" style={{ height: 56, borderRadius: 8, marginBottom: 8 }} />)}</div>
 }
 
-function ZapIcon({ size = 24 }) { return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> }
-function TrashIcon({ size = 14 }) { return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg> }
-function PlayIcon({ size = 14 }) { return <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg> }
+function ZapIcon({ size = 20, color }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color || 'currentColor'} strokeWidth="1.8" strokeLinecap="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+}
+
+function TrashIcon({ size = 14 }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+}
+
+function PlayIcon({ size = 14 }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+}
