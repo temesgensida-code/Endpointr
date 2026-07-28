@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"sort"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -94,6 +94,7 @@ func (e *PerfExecutor) runLoad(p PerfRunPayload) (map[string]any, string) {
 		mu        sync.Mutex
 		totalReqs int64
 		errCount  int64
+		vuWg      sync.WaitGroup
 	)
 
 	// Ramp-up: gradually increase VUs
@@ -114,9 +115,16 @@ func (e *PerfExecutor) runLoad(p PerfRunPayload) (map[string]any, string) {
 	hc := &http.Client{Timeout: 10 * time.Second}
 
 	runVU := func() {
+		defer vuWg.Done()
+		localSamples := make([]perfSample, 0, 1000)
 		for {
 			select {
 			case <-done:
+				if len(localSamples) > 0 {
+					mu.Lock()
+					samples = append(samples, localSamples...)
+					mu.Unlock()
+				}
 				return
 			default:
 			}
@@ -137,9 +145,7 @@ func (e *PerfExecutor) runLoad(p PerfRunPayload) (map[string]any, string) {
 				atomic.AddInt64(&errCount, 1)
 			}
 
-			mu.Lock()
-			samples = append(samples, perfSample{latencyMs: lat, err: isErr})
-			mu.Unlock()
+			localSamples = append(localSamples, perfSample{latencyMs: lat, err: isErr})
 		}
 	}
 
@@ -152,6 +158,7 @@ func (e *PerfExecutor) runLoad(p PerfRunPayload) (map[string]any, string) {
 			}
 			activeVUs++
 			activeCh <- struct{}{}
+			vuWg.Add(1)
 			go func() {
 				runVU()
 				<-activeCh
@@ -159,6 +166,7 @@ func (e *PerfExecutor) runLoad(p PerfRunPayload) (map[string]any, string) {
 		}
 	}()
 	<-done
+	vuWg.Wait()
 
 	return buildSummary(samples, int(totalReqs), int(errCount), durationSec), "completed"
 }
@@ -262,7 +270,7 @@ func buildSummary(samples []perfSample, total, errCount, durationSec int) map[st
 	for _, s := range samples {
 		latencies = append(latencies, s.latencyMs)
 	}
-	sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
+	slices.Sort(latencies)
 
 	p := func(pct float64) int64 {
 		idx := int(math.Ceil(pct/100*float64(len(latencies)))) - 1
