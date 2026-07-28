@@ -9,7 +9,7 @@ const TYPES = [
   { id: 'fuzz',       label: 'Fuzz Test',       desc: 'Mutate inputs to find edge cases' },
 ]
 
-export default function PerformanceView({ getToken, projectId }) {
+export default function PerformanceView({ getToken, projectId, onNavigate }) {
   const svc = performanceService(getToken)
   const [configs, setConfigs] = useState([])
   const [loading, setLoading] = useState(true)
@@ -63,7 +63,17 @@ export default function PerformanceView({ getToken, projectId }) {
     finally { setTriggering(false) }
   }
 
-  if (!projectId) return <div className="empty-state" style={{ height: '100%' }}><ZapIcon size={32} /><p>Select a project first</p></div>
+  if (!projectId) return (
+    <div className="empty-state" style={{ height: '100%' }}>
+      <ZapIcon size={32} />
+      <p style={{ marginBottom: 12 }}>Select a project first to view and run performance tests</p>
+      {onNavigate && (
+        <button className="btn btn-primary btn-sm" onClick={() => onNavigate('projects')}>
+          Go to Projects
+        </button>
+      )}
+    </div>
+  )
   if (loading) return <LoadingSkeleton />
 
   const latestCompleted = runs.find(r => r.status === 'completed' && r.summary)
