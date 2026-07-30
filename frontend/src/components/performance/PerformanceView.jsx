@@ -36,6 +36,12 @@ export default function PerformanceView({ getToken, projectId, onNavigate }) {
     vus: 10,
     duration_seconds: 15,
     ramp_up_seconds: 3,
+    start_vus: 5,
+    max_vus: 50,
+    step_vus: 10,
+    step_duration_seconds: 5,
+    max_error_rate_pct: 5,
+    max_p95_latency_ms: 2000,
     target_rps: 50,
     headers: '{\n  "Accept": "application/json"\n}',
     body: '{\n  "key": "value"\n}'
@@ -140,6 +146,12 @@ export default function PerformanceView({ getToken, projectId, onNavigate }) {
           vus: Number(draft.vus),
           duration_seconds: Number(draft.duration_seconds),
           ramp_up_seconds: Number(draft.ramp_up_seconds),
+          start_vus: Number(draft.start_vus),
+          max_vus: Number(draft.max_vus),
+          step_vus: Number(draft.step_vus),
+          step_duration_seconds: Number(draft.step_duration_seconds),
+          max_error_rate_pct: Number(draft.max_error_rate_pct),
+          max_p95_latency_ms: Number(draft.max_p95_latency_ms),
           target_rps: Number(draft.target_rps),
           headers: parsedHeaders,
           body: ['POST', 'PUT', 'PATCH'].includes(draft.method) ? draft.body : undefined
@@ -346,16 +358,46 @@ export default function PerformanceView({ getToken, projectId, onNavigate }) {
                     <input value={draft.target_url} onChange={e => setDraft(d => ({ ...d, target_url: e.target.value }))} placeholder="https://api.example.com/endpoint" style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }} />
                   </div>
 
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: 10, color: 'var(--tx-muted)' }}>VUs (Concurrency)</label>
-                      <input type="number" value={draft.vus} onChange={e => setDraft(d => ({ ...d, vus: e.target.value }))} />
+                  {draft.type === 'stress' ? (
+                    <>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: 10, color: 'var(--tx-muted)' }}>Start VUs</label>
+                          <input type="number" value={draft.start_vus} onChange={e => setDraft(d => ({ ...d, start_vus: e.target.value }))} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: 10, color: 'var(--tx-muted)' }}>Max VUs Target</label>
+                          <input type="number" value={draft.max_vus} onChange={e => setDraft(d => ({ ...d, max_vus: e.target.value }))} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: 10, color: 'var(--tx-muted)' }}>Step VUs</label>
+                          <input type="number" value={draft.step_vus} onChange={e => setDraft(d => ({ ...d, step_vus: e.target.value }))} />
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: 10, color: 'var(--tx-muted)' }}>SLA Max Error %</label>
+                          <input type="number" value={draft.max_error_rate_pct} onChange={e => setDraft(d => ({ ...d, max_error_rate_pct: e.target.value }))} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: 10, color: 'var(--tx-muted)' }}>SLA Max Latency (ms)</label>
+                          <input type="number" value={draft.max_p95_latency_ms} onChange={e => setDraft(d => ({ ...d, max_p95_latency_ms: e.target.value }))} />
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: 10, color: 'var(--tx-muted)' }}>VUs (Concurrency)</label>
+                        <input type="number" value={draft.vus} onChange={e => setDraft(d => ({ ...d, vus: e.target.value }))} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: 10, color: 'var(--tx-muted)' }}>Duration (sec)</label>
+                        <input type="number" value={draft.duration_seconds} onChange={e => setDraft(d => ({ ...d, duration_seconds: e.target.value }))} />
+                      </div>
                     </div>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: 10, color: 'var(--tx-muted)' }}>Duration (sec)</label>
-                      <input type="number" value={draft.duration_seconds} onChange={e => setDraft(d => ({ ...d, duration_seconds: e.target.value }))} />
-                    </div>
-                  </div>
+                  )}
 
                   <div>
                     <label style={{ fontSize: 10, color: 'var(--tx-muted)' }}>JSON Headers</label>
@@ -438,9 +480,32 @@ export default function PerformanceView({ getToken, projectId, onNavigate }) {
                   </button>
                 </div>
 
-                {/* Latest KPI Tiles */}
-                {runs.find(r => r.status === 'completed' && r.summary) && (
+                {/* Latest KPI Tiles & Breaking Point Banner */}
+                {runs.find(r => r.summary) && (
                   <div style={{ marginBottom: 'var(--s6)' }}>
+                    {(() => {
+                      const latestRun = runs.find(r => r.summary)
+                      const bp = latestRun?.summary?.breaking_point
+                      if (!bp?.detected) return null
+                      return (
+                        <div style={{
+                          padding: '12px 16px',
+                          borderRadius: 8,
+                          background: 'rgba(239, 68, 68, 0.12)',
+                          border: '1px solid var(--red)',
+                          color: 'var(--red)',
+                          marginBottom: 16
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, fontSize: 13 }}>
+                            <span>⚠️ Breaking Point Detected at {bp.breaking_vus} VUs (Sec {bp.timestamp_sec})</span>
+                          </div>
+                          <div style={{ fontSize: 12, marginTop: 4, opacity: 0.9 }}>
+                            {bp.reason}
+                          </div>
+                        </div>
+                      )
+                    })()}
+
                     <span className="section-label" style={{ paddingLeft: 0, marginBottom: 10 }}>Latest Run Metrics</span>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
                       {(() => {

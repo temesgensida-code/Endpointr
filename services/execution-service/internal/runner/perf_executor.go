@@ -58,8 +58,10 @@ func (e *PerfExecutor) Execute(p PerfRunPayload) {
 	var status string
 
 	switch p.Type {
-	case "load", "stress":
+	case "load":
 		summary, status = e.runLoad(p)
+	case "stress":
+		summary, status = e.runStress(p)
 	case "rate_limit":
 		summary, status = e.runRateLimit(p)
 	case "fuzz":
@@ -89,15 +91,13 @@ func (e *PerfExecutor) Execute(p PerfRunPayload) {
 	)
 }
 
-// runLoad executes a load/stress test using the configured VUs and duration.
-// Improvement #1: publishes per-second metric snapshots via NATS during the run.
-// Improvement #6: supports optional think_time_ms between VU requests.
+// runLoad executes a load test using configured VUs and duration.
 func (e *PerfExecutor) runLoad(p PerfRunPayload) (map[string]any, string) {
 	cfg := p.Config
 	vus := intFromConfig(cfg, "vus", 10)
 	durationSec := intFromConfig(cfg, "duration_seconds", 30)
 	rampUpSec := intFromConfig(cfg, "ramp_up_seconds", 5)
-	thinkTimeMs := intFromConfig(cfg, "think_time_ms", 0) // #6: optional think time
+	thinkTimeMs := intFromConfig(cfg, "think_time_ms", 0)
 	targetURL := stringFromConfig(cfg, "target_url", "")
 	method := stringFromConfig(cfg, "method", "GET")
 
@@ -116,7 +116,6 @@ func (e *PerfExecutor) runLoad(p PerfRunPayload) (map[string]any, string) {
 		vuWg      sync.WaitGroup
 	)
 
-	// Ramp-up: gradually increase VUs
 	activeCh := make(chan struct{}, vus)
 	ticker := time.NewTicker(time.Duration(durationSec) * time.Second)
 	defer ticker.Stop()
@@ -166,7 +165,6 @@ func (e *PerfExecutor) runLoad(p PerfRunPayload) (map[string]any, string) {
 
 			localSamples = append(localSamples, perfSample{latencyMs: lat, err: isErr})
 
-			// #6: optional think time between requests
 			if thinkTimeMs > 0 {
 				select {
 				case <-done:
@@ -177,7 +175,6 @@ func (e *PerfExecutor) runLoad(p PerfRunPayload) (map[string]any, string) {
 		}
 	}
 
-	// Ramp up VUs over rampUpSec
 	go func() {
 		for range rampTicker.C {
 			if activeVUs >= vus {
@@ -194,7 +191,6 @@ func (e *PerfExecutor) runLoad(p PerfRunPayload) (map[string]any, string) {
 		}
 	}()
 
-	// #1: publish per-second metric snapshots while the test runs
 	go e.publishLiveMetrics(ctx, done, p.RunID, p.ProjectID, targetURL, method, &samples, &mu, durationSec)
 
 	<-done
@@ -203,8 +199,239 @@ func (e *PerfExecutor) runLoad(p PerfRunPayload) (map[string]any, string) {
 	return buildSummary(samples, int(totalReqs), int(errCount), durationSec), "completed"
 }
 
-// publishLiveMetrics emits a results.metric NATS event every second during the run.
-// Improvement #1: real-time per-second snapshots for live chart rendering.
+// runStress executes a step-up stress test to find breaking points & SLA violations.
+func (e *PerfExecutor) runStress(p PerfRunPayload) (map[string]any, string) {
+	cfg := p.Config
+	startVUs := intFromConfig(cfg, "start_vus", 5)
+	maxVUs := intFromConfig(cfg, "max_vus", intFromConfig(cfg, "vus", 50))
+	stepVUs := intFromConfig(cfg, "step_vus", 10)
+	stepDurationSec := intFromConfig(cfg, "step_duration_seconds", 5)
+	targetURL := stringFromConfig(cfg, "target_url", "")
+	method := stringFromConfig(cfg, "method", "GET")
+	thinkTimeMs := intFromConfig(cfg, "think_time_ms", 0)
+
+	maxErrorRatePct := floatFromConfig(cfg, "max_error_rate_pct", 5.0)
+	maxP95LatencyMs := floatFromConfig(cfg, "max_p95_latency_ms", 2000.0)
+
+	if targetURL == "" {
+		return map[string]any{"error": "target_url is required"}, "failed"
+	}
+
+	totalSteps := ((maxVUs - startVUs) / stepVUs) + 1
+	if totalSteps < 1 {
+		totalSteps = 1
+	}
+	totalDurationSec := totalSteps * stepDurationSec
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(totalDurationSec+10)*time.Second)
+	defer cancel()
+
+	var (
+		samples   []perfSample
+		mu        sync.Mutex
+		totalReqs int64
+		errCount  int64
+		vuWg      sync.WaitGroup
+	)
+
+	done := make(chan struct{})
+	timer := time.NewTimer(time.Duration(totalDurationSec) * time.Second)
+	defer timer.Stop()
+
+	go func() {
+		<-timer.C
+		close(done)
+	}()
+
+	hc := e.hc
+
+	runVUWorker := func() {
+		defer vuWg.Done()
+		localSamples := make([]perfSample, 0, 500)
+		for {
+			select {
+			case <-done:
+				if len(localSamples) > 0 {
+					mu.Lock()
+					samples = append(samples, localSamples...)
+					mu.Unlock()
+				}
+				return
+			default:
+			}
+
+			start := time.Now()
+			req, _ := http.NewRequestWithContext(ctx, method, targetURL, nil)
+			resp, err := hc.Do(req)
+			lat := time.Since(start).Milliseconds()
+			atomic.AddInt64(&totalReqs, 1)
+
+			isErr := err != nil
+			if err == nil {
+				resp.Body.Close()
+				if resp.StatusCode >= 500 {
+					isErr = true
+				}
+			}
+			if isErr {
+				atomic.AddInt64(&errCount, 1)
+			}
+
+			localSamples = append(localSamples, perfSample{latencyMs: lat, err: isErr})
+
+			if thinkTimeMs > 0 {
+				select {
+				case <-done:
+					return
+				case <-time.After(time.Duration(thinkTimeMs) * time.Millisecond):
+				}
+			}
+		}
+	}
+
+	var currentVUs int32
+	var breakingPointDetected bool
+	var breakingVUs int
+	var breakingReason string
+	var breakingSec int
+
+	// Step load controller
+	go func() {
+		stepTicker := time.NewTicker(time.Duration(stepDurationSec) * time.Second)
+		defer stepTicker.Stop()
+
+		for i := 0; i < startVUs; i++ {
+			atomic.AddInt32(&currentVUs, 1)
+			vuWg.Add(1)
+			go runVUWorker()
+		}
+
+		for {
+			select {
+			case <-done:
+				return
+			case <-stepTicker.C:
+				cur := int(atomic.LoadInt32(&currentVUs))
+				if cur < maxVUs {
+					toAdd := stepVUs
+					if cur+toAdd > maxVUs {
+						toAdd = maxVUs - cur
+					}
+					for i := 0; i < toAdd; i++ {
+						atomic.AddInt32(&currentVUs, 1)
+						vuWg.Add(1)
+						go runVUWorker()
+					}
+				}
+			}
+		}
+	}()
+
+	// Publish live metrics and monitor breaking point
+	go func() {
+		tick := time.NewTicker(time.Second)
+		defer tick.Stop()
+		lastCount := 0
+		second := 0
+
+		for {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+				second++
+				mu.Lock()
+				snap := make([]perfSample, len(samples))
+				copy(snap, samples)
+				mu.Unlock()
+
+				newCount := len(snap) - lastCount
+				lastCount = len(snap)
+				if newCount == 0 {
+					continue
+				}
+
+				window := snap[max(0, len(snap)-newCount):]
+				lats := make([]int64, 0, len(window))
+				errW := 0
+				for _, s := range window {
+					lats = append(lats, s.latencyMs)
+					if s.err {
+						errW++
+					}
+				}
+				slices.Sort(lats)
+
+				p95 := float64(0)
+				if len(lats) > 0 {
+					idx := int(math.Ceil(0.95*float64(len(lats)))) - 1
+					if idx < 0 {
+						idx = 0
+					}
+					p95 = float64(lats[idx])
+				}
+
+				errRate := float64(errW) / float64(newCount) * 100
+				curVUs := int(atomic.LoadInt32(&currentVUs))
+
+				if !breakingPointDetected {
+					if errRate >= maxErrorRatePct {
+						breakingPointDetected = true
+						breakingVUs = curVUs
+						breakingReason = fmt.Sprintf("Error rate (%.1f%%) exceeded SLA threshold (%.1f%%)", errRate, maxErrorRatePct)
+						breakingSec = second
+					} else if p95 >= maxP95LatencyMs {
+						breakingPointDetected = true
+						breakingVUs = curVUs
+						breakingReason = fmt.Sprintf("P95 latency (%.0fms) exceeded SLA threshold (%.0fms)", p95, maxP95LatencyMs)
+						breakingSec = second
+					}
+				}
+
+				_ = natsclient.Publish(e.nc, "results.metric", map[string]any{
+					"time":        time.Now(),
+					"project_id":  p.ProjectID,
+					"run_id":      p.RunID,
+					"endpoint":    targetURL,
+					"method":      method,
+					"status_code": 200,
+					"latency_ms":  p95,
+					"error":       errRate > 0,
+					"rps":         newCount,
+					"error_rate":  math.Round(errRate*100) / 100,
+					"second":      second,
+					"active_vus":  curVUs,
+				})
+			}
+		}
+	}()
+
+	<-done
+	vuWg.Wait()
+
+	summary := buildSummary(samples, int(totalReqs), int(errCount), totalDurationSec)
+	summary["breaking_point"] = map[string]any{
+		"detected":       breakingPointDetected,
+		"breaking_vus":   breakingVUs,
+		"reason":         breakingReason,
+		"timestamp_sec":  breakingSec,
+		"start_vus":      startVUs,
+		"max_vus":        maxVUs,
+		"step_vus":       stepVUs,
+		"max_error_pct":  maxErrorRatePct,
+		"max_latency_ms": maxP95LatencyMs,
+	}
+
+	finalStatus := "completed"
+	if breakingPointDetected {
+		finalStatus = "failed"
+	}
+
+	return summary, finalStatus
+}
+
 func (e *PerfExecutor) publishLiveMetrics(
 	ctx context.Context,
 	done <-chan struct{},
@@ -237,7 +464,6 @@ func (e *PerfExecutor) publishLiveMetrics(
 				continue
 			}
 
-			// Compute latency stats on the window of new samples
 			window := snap[max(0, len(snap)-newCount):]
 			lats := make([]int64, 0, len(window))
 			errW := 0
@@ -272,17 +498,14 @@ func (e *PerfExecutor) publishLiveMetrics(
 				"status_code": 200,
 				"latency_ms":  p95,
 				"error":       errRate > 0,
-				// extra live fields consumed by the frontend chart
-				"rps":        newCount,
-				"error_rate": math.Round(errRate*100) / 100,
-				"second":     second,
+				"rps":         newCount,
+				"error_rate":  math.Round(errRate*100) / 100,
+				"second":      second,
 			})
 		}
 	}
 }
 
-// runRateLimit fires requests at a fixed RPS and detects rate-limit responses (429).
-// Fix #3: now uses http.NewRequestWithContext so cancellation works correctly.
 func (e *PerfExecutor) runRateLimit(p PerfRunPayload) (map[string]any, string) {
 	cfg := p.Config
 	rps := intFromConfig(cfg, "rps", 10)
@@ -301,7 +524,6 @@ func (e *PerfExecutor) runRateLimit(p PerfRunPayload) (map[string]any, string) {
 
 	var rateLimited, total int
 	for time.Now().Before(deadline) {
-		// Fix #3: use context so the request respects cancellation/timeout
 		req, err := http.NewRequestWithContext(ctx, "GET", targetURL, nil)
 		if err != nil {
 			break
@@ -336,8 +558,6 @@ done:
 	}, "completed"
 }
 
-// runFuzz sends mutated payloads and records unexpected 5xx responses.
-// Fix #4: mutation payload is now actually sent as the request body.
 func (e *PerfExecutor) runFuzz(p PerfRunPayload) (map[string]any, string) {
 	cfg := p.Config
 	iterations := intFromConfig(cfg, "iterations", 20)
@@ -351,7 +571,7 @@ func (e *PerfExecutor) runFuzz(p PerfRunPayload) (map[string]any, string) {
 		`{"__proto__":{"admin":true}}`,
 		"<script>alert(1)</script>",
 		"' OR 1=1 --",
-		string(make([]byte, 10000)), // large payload
+		string(make([]byte, 10000)),
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(iterations*2+10)*time.Second)
@@ -363,7 +583,6 @@ func (e *PerfExecutor) runFuzz(p PerfRunPayload) (map[string]any, string) {
 	for i := 0; i < iterations; i++ {
 		mutation := mutations[i%len(mutations)]
 
-		// Fix #4: actually send the mutation as the request body
 		body := strings.NewReader(mutation)
 		req, err := http.NewRequestWithContext(ctx, "POST", targetURL, body)
 		if err != nil {
@@ -399,8 +618,6 @@ func (e *PerfExecutor) runFuzz(p PerfRunPayload) (map[string]any, string) {
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-// buildSummary computes latency percentiles, throughput, error rate and stddev.
-// Improvement #5: adds stddev_latency_ms to the summary.
 func buildSummary(samples []perfSample, total, errCount, durationSec int) map[string]any {
 	if len(samples) == 0 {
 		return map[string]any{"total_requests": total, "error": "no samples"}
@@ -420,7 +637,6 @@ func buildSummary(samples []perfSample, total, errCount, durationSec int) map[st
 		return latencies[idx]
 	}
 
-	// #5: compute standard deviation
 	var sumLat float64
 	for _, l := range latencies {
 		sumLat += float64(l)
@@ -466,6 +682,18 @@ func intFromConfig(cfg map[string]any, key string, def int) int {
 	return def
 }
 
+func floatFromConfig(cfg map[string]any, key string, def float64) float64 {
+	if v, ok := cfg[key]; ok {
+		switch t := v.(type) {
+		case float64:
+			return t
+		case int:
+			return float64(t)
+		}
+	}
+	return def
+}
+
 func stringFromConfig(cfg map[string]any, key, def string) string {
 	if v, ok := cfg[key]; ok {
 		if s, ok := v.(string); ok {
@@ -475,7 +703,6 @@ func stringFromConfig(cfg map[string]any, key, def string) string {
 	return def
 }
 
-// Silence unused import — bytes is used by strings.NewReader equivalent check
 var _ = bytes.NewReader
 
 func max(a, b int) int {
