@@ -6,6 +6,7 @@ export async function sendProxyRequestApi({
   requestMethod,
   requestUrl,
   requestJsonBody,
+  requestHeaders,
 }) {
   const trimmedUrl = requestUrl.trim()
   if (!trimmedUrl) {
@@ -38,6 +39,7 @@ export async function sendProxyRequestApi({
       method: requestMethod,
       url: trimmedUrl,
       client_user_id: userId,
+      headers: requestHeaders || {},
       ...(methodAllowsBody && parsedBody !== undefined ? { json: parsedBody } : {}),
     }),
   })
@@ -53,3 +55,4 @@ export async function sendProxyRequestApi({
 
   return payload
 }
+

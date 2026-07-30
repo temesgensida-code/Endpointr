@@ -49,7 +49,21 @@ export default function RequestBuilder({ getToken, userId }) {
     if (!url.trim()) return
     setLoading(true); setError(''); setResult(null)
     try {
-      const payload = await sendProxyRequestApi({ getToken, userId, requestMethod: method, requestUrl: url, requestJsonBody: body })
+      const requestHeaders = {}
+      headers.forEach(h => {
+        if (h.key && h.key.trim()) {
+          requestHeaders[h.key.trim()] = h.value || ''
+        }
+      })
+
+      const payload = await sendProxyRequestApi({
+        getToken,
+        userId,
+        requestMethod: method,
+        requestUrl: url,
+        requestJsonBody: body,
+        requestHeaders,
+      })
       setResult(payload)
     } catch (e) {
       setError(e.message)
@@ -84,7 +98,7 @@ export default function RequestBuilder({ getToken, userId }) {
 
   function loadHistoryItem(item) {
     setMethod(item.method || 'GET')
-    setUrl(item.url || '')
+    setUrl(item.requested_url || item.url || '')
     try { setBody(JSON.stringify(JSON.parse(item.request_body || '{}'), null, 2)) } catch { setBody('') }
   }
 
@@ -105,10 +119,15 @@ export default function RequestBuilder({ getToken, userId }) {
   }
 
   const hasBody = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
-  const responseBody = result?.response_body
+  const responseBody = result?.response_body !== undefined ? result.response_body : result?.upstream?.body
   let prettyResponse = ''
-  try { prettyResponse = JSON.stringify(typeof responseBody === 'string' ? JSON.parse(responseBody) : responseBody, null, 2) }
-  catch { prettyResponse = String(responseBody || '') }
+  try {
+    prettyResponse = typeof responseBody === 'object' && responseBody !== null
+      ? JSON.stringify(responseBody, null, 2)
+      : JSON.stringify(JSON.parse(responseBody), null, 2)
+  } catch {
+    prettyResponse = String(responseBody !== undefined && responseBody !== null ? responseBody : '')
+  }
 
   return (
     <div ref={rowRef} style={{
@@ -155,7 +174,7 @@ export default function RequestBuilder({ getToken, userId }) {
                 >
                   <MethodBadge method={item.method || 'GET'} />
                   <span style={{ flex: 1, fontSize: 11, color: 'var(--tx-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {item.url}
+                    {item.requested_url || item.url}
                   </span>
                   <StatusBadge status={item.response_status_code} />
                   <button className="btn-icon" style={{ width: 22, height: 22, flexShrink: 0 }}
@@ -171,9 +190,12 @@ export default function RequestBuilder({ getToken, userId }) {
                     <button className="btn btn-ghost btn-xs" style={{ marginBottom: 6 }} onClick={() => loadHistoryItem(item)}>
                       Load into builder
                     </button>
-                    {item.response_body && (
+                    {(item.response_body || item.response) && (
                       <pre className="code-block" style={{ fontSize: 10, maxHeight: 120, overflow: 'auto' }}>
-                        {(() => { try { return JSON.stringify(JSON.parse(item.response_body), null, 2) } catch { return item.response_body } })()}
+                        {(() => {
+                          const bodyStr = item.response_body || (typeof item.response === 'string' ? item.response : JSON.stringify(item.response));
+                          try { return JSON.stringify(JSON.parse(bodyStr), null, 2) } catch { return bodyStr }
+                        })()}
                       </pre>
                     )}
                   </div>
@@ -294,10 +316,10 @@ export default function RequestBuilder({ getToken, userId }) {
             <h2 style={{ fontSize: 11, flex: 1 }}>Response</h2>
             {result && (
               <>
-                <StatusBadge status={result.response_status_code} />
-                {result.response_time_ms && (
+                <StatusBadge status={result.response_status_code || result.upstream?.status_code} />
+                {(result.response_time_ms || result.upstream?.elapsed_ms) && (
                   <span style={{ fontSize: 11, color: 'var(--tx-muted)', fontFamily: 'var(--font-mono)' }}>
-                    {result.response_time_ms}ms
+                    {result.response_time_ms || result.upstream?.elapsed_ms}ms
                   </span>
                 )}
               </>
@@ -312,7 +334,7 @@ export default function RequestBuilder({ getToken, userId }) {
               <button
                 className="btn btn-ghost btn-xs"
                 style={{ fontSize: 11 }}
-                onClick={() => setAskAiPrompt(`Analyse this API response and check for security issues:\n\`\`\`\nURL: ${url}\nMethod: ${method}\nStatus: ${result.response_status_code}\nBody: ${prettyResponse}\n\`\`\``)}
+                onClick={() => setAskAiPrompt(`Analyse this API response and check for security issues:\n\`\`\`\nURL: ${url}\nMethod: ${method}\nStatus: ${result.response_status_code || result.upstream?.status_code}\nBody: ${prettyResponse}\n\`\`\``)}
               >
                 Ask AI
               </button>
@@ -345,13 +367,13 @@ export default function RequestBuilder({ getToken, userId }) {
             )}
             {result && responseTab === 'headers' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {Object.entries(result.response_headers || {}).map(([k, v]) => (
+                {Object.entries(result.response_headers || result.upstream?.headers || {}).map(([k, v]) => (
                   <div key={k} style={{ display: 'flex', gap: 'var(--s3)', fontSize: 11, borderBottom: '1px solid var(--border)', paddingBottom: 4 }}>
                     <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-bright)', minWidth: 180, flexShrink: 0 }}>{k}</span>
                     <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--tx-secondary)', wordBreak: 'break-all' }}>{v}</span>
                   </div>
                 ))}
-                {!Object.keys(result.response_headers || {}).length && (
+                {!Object.keys(result.response_headers || result.upstream?.headers || {}).length && (
                   <p style={{ fontSize: 12, color: 'var(--tx-muted)' }}>No response headers available</p>
                 )}
               </div>

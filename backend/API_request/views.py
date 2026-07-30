@@ -96,13 +96,16 @@ def request_history(request):
 		except json.JSONDecodeError:
 			response_body = item.response_body
 
+		raw_resp = response_body.get("body") if isinstance(response_body, dict) and "body" in response_body else response_body
 		serialized.append(
 			{
 				"id": item.id,
 				"requested_url": item.request_url,
+				"url": item.request_url,
 				"method": item.request_method,
 				"response_status_code": item.response_status_code,
 				"response": response_body,
+				"response_body": json.dumps(raw_resp) if isinstance(raw_resp, (dict, list)) else str(raw_resp),
 				"created_at": item.created_at.isoformat(),
 			}
 		)
@@ -219,6 +222,7 @@ def send_api_request(request):
 		response_body = response.text
 		body_is_json = False
 
+	response_time_ms = int(response.elapsed.total_seconds() * 1000)
 	response_payload = {
 		"ok": response.is_success,
 		"upstream": {
@@ -228,7 +232,12 @@ def send_api_request(request):
 			"headers": dict(response.headers),
 			"is_json": body_is_json,
 			"body": response_body,
+			"elapsed_ms": response_time_ms,
 		},
+		"response_status_code": response.status_code,
+		"response_body": response_body,
+		"response_headers": dict(response.headers),
+		"response_time_ms": response_time_ms,
 	}
 
 	_store_request_history(user_id, method, str(response.url), response.status_code, response_payload["upstream"])
