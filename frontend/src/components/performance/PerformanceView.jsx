@@ -77,6 +77,34 @@ export default function PerformanceView({ getToken, projectId, onNavigate }) {
     }
   }, [currentProjectId])
 
+  useEffect(() => {
+    if (!currentProjectId || !selectedConfig) return
+    const hasActive = runs.some(r => r.status === 'queued' || r.status === 'running')
+    if (!hasActive) return
+
+    const interval = setInterval(async () => {
+      try {
+        const updatedRuns = await perfSvc.listRuns(currentProjectId, selectedConfig.id)
+        setRuns(updatedRuns)
+      } catch (err) {
+        console.error('Failed to poll runs:', err)
+      }
+    }, 3000)
+
+    return () => clearInterval(interval)
+  }, [currentProjectId, selectedConfig, runs])
+
+  async function cancelRun(runId) {
+    if (!selectedConfig) return
+    try {
+      await perfSvc.cancelRun(currentProjectId, selectedConfig.id, runId)
+      const updatedRuns = await perfSvc.listRuns(currentProjectId, selectedConfig.id)
+      setRuns(updatedRuns)
+    } catch (e) {
+      alert('Failed to cancel run: ' + e.message)
+    }
+  }
+
   async function loadConfigs() {
     setLoading(true)
     try {
@@ -445,9 +473,19 @@ export default function PerformanceView({ getToken, projectId, onNavigate }) {
                             <StatusBadge status={r.status} />
                             <code style={{ fontSize: 11, color: 'var(--tx-secondary)' }}>Run #{r.id.slice(0, 12)}</code>
                           </div>
-                          <span style={{ fontSize: 11, color: 'var(--tx-muted)', fontFamily: 'var(--font-mono)' }}>
-                            {r.created_at ? new Date(r.created_at).toLocaleString() : ''}
-                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            {['queued', 'running'].includes(r.status) && (
+                              <button
+                                className="btn btn-danger btn-xs"
+                                onClick={() => cancelRun(r.id)}
+                              >
+                                Cancel
+                              </button>
+                            )}
+                            <span style={{ fontSize: 11, color: 'var(--tx-muted)', fontFamily: 'var(--font-mono)' }}>
+                              {r.created_at ? new Date(r.created_at).toLocaleString() : ''}
+                            </span>
+                          </div>
                         </div>
 
                         {r.summary && (

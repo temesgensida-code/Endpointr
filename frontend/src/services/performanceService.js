@@ -22,7 +22,11 @@ export function performanceService(getToken) {
       api.post(`${base(projectId)}/${configId}/run/`, {}),
     listRuns: (projectId, configId) =>
       api.get(`${base(projectId)}/${configId}/runs/`),
+    // Improvement #8: cancel a queued or running test
+    cancelRun: (projectId, configId, runId) =>
+      api.post(`${base(projectId)}/${configId}/runs/${runId}/cancel/`, {}),
     getRegressionReport: (projectId, runAId, runBId) =>
       api.get(`${base(projectId)}/regression/?run_a=${runAId}&run_b=${runBId}`),
   }
 }
+
