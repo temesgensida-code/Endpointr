@@ -1,54 +1,54 @@
 /* ============================================================
    ENDPOINTR — Design System
-   Palette: dark-first, terminal-heritage, electric violet accent
+   Palette: warm charcoal + muted rose accent
    Typefaces: Inter (UI), JetBrains Mono (code/data)
-   Signature element: animated status pulse + gradient glow cards
+   Signature element: animated status pulse + subtle glow cards
    ============================================================ */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 /* ── Tokens ─────────────────────────────────────────────────── */
 :root {
-  /* Surface */
-  --bg-base:    #0a0b0f;
-  --bg-raised:  #111318;
-  --bg-overlay: #181b22;
-  --bg-subtle:  #1e2028;
-  --bg-hover:   #252830;
+  /* Surface — warm charcoal family */
+  --bg-base:    #1E2026;
+  --bg-raised:  #30333A;
+  --bg-overlay: #3A3D45;
+  --bg-subtle:  #2A2D34;
+  --bg-hover:   #42454E;
 
   /* Border */
-  --border:        rgba(255,255,255,0.07);
-  --border-strong: rgba(255,255,255,0.13);
-  --border-focus:  rgba(139,92,246,0.6);
+  --border:        rgba(154,141,152,0.15);
+  --border-strong: rgba(154,141,152,0.25);
+  --border-focus:  rgba(183,155,155,0.55);
 
   /* Text */
-  --tx-primary:   #f1f2f5;
-  --tx-secondary: #8b8fa8;
-  --tx-muted:     #4e5163;
-  --tx-invert:    #0a0b0f;
+  --tx-primary:   #E8E2E8;
+  --tx-secondary: #9A8D98;
+  --tx-muted:     #72676F;
+  --tx-invert:    #1E2026;
 
-  /* Accent — electric violet */
-  --accent:        #8b5cf6;
-  --accent-bright: #a78bfa;
-  --accent-dim:    rgba(139,92,246,0.15);
-  --accent-glow:   rgba(139,92,246,0.25);
+  /* Accent — muted rose */
+  --accent:        #B79B9B;
+  --accent-bright: #CEB0B0;
+  --accent-dim:    rgba(183,155,155,0.15);
+  --accent-glow:   rgba(183,155,155,0.20);
 
   /* Status */
-  --green:   #34d399;
-  --green-dim: rgba(52,211,153,0.12);
-  --yellow:  #fbbf24;
-  --yellow-dim: rgba(251,191,36,0.12);
-  --red:     #f87171;
-  --red-dim: rgba(248,113,113,0.12);
-  --blue:    #60a5fa;
-  --blue-dim: rgba(96,165,250,0.12);
+  --green:      #5EB88A;
+  --green-dim:  rgba(94,184,138,0.12);
+  --yellow:     #C9A84C;
+  --yellow-dim: rgba(201,168,76,0.12);
+  --red:        #C47A7A;
+  --red-dim:    rgba(196,122,122,0.12);
+  --blue:       #7A9BC4;
+  --blue-dim:   rgba(122,155,196,0.12);
 
-  /* Method colours */
-  --method-get:    #34d399;
-  --method-post:   #60a5fa;
-  --method-put:    #fbbf24;
-  --method-patch:  #fb923c;
-  --method-delete: #f87171;
+  /* Method colours — desaturated, palette-consistent */
+  --method-get:    #5EB88A;
+  --method-post:   #7A9BC4;
+  --method-put:    #C9A84C;
+  --method-patch:  #C49A7A;
+  --method-delete: #C47A7A;
 
   /* Typography */
   --font-ui:   'Inter', system-ui, sans-serif;
@@ -62,20 +62,20 @@
   --r1: 4px; --r2: 6px; --r3: 8px; --r4: 12px; --r5: 16px;
 
   /* Shadow */
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.5), 0 2px 4px rgba(0,0,0,0.3);
-  --shadow-lg: 0 10px 30px rgba(0,0,0,0.6), 0 4px 8px rgba(0,0,0,0.4);
-  --shadow-glow: 0 0 20px var(--accent-glow);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.35), 0 1px 2px rgba(0,0,0,0.25);
+  --shadow-md: 0 4px 14px rgba(0,0,0,0.45), 0 2px 4px rgba(0,0,0,0.25);
+  --shadow-lg: 0 10px 32px rgba(0,0,0,0.55), 0 4px 8px rgba(0,0,0,0.35);
+  --shadow-glow: 0 0 18px var(--accent-glow);
 
   /* Transitions */
   --t-fast: 120ms ease;
   --t-base: 200ms ease;
   --t-slow: 320ms ease;
 
-  /* Layout */
-  --sidebar-w: 220px;
-  --navbar-h:  52px;
-  --resizer-w: 3px;
+  /* Layout — topnav only, no sidebar */
+  --navbar-h:     54px;
+  --altbar-h:     56px;
+  --resizer-w:    3px;
 }
 
 /* ── Reset ──────────────────────────────────────────────────── */
