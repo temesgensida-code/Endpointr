@@ -543,54 +543,239 @@ func (e *PerfExecutor) publishLiveMetrics(
 
 func (e *PerfExecutor) runRateLimit(p PerfRunPayload) (map[string]any, string) {
 	cfg := p.Config
-	rps := intFromConfig(cfg, "rps", 10)
-	durationSec := intFromConfig(cfg, "duration_seconds", 10)
+	startRPS := intFromConfig(cfg, "start_rps", 5)
+	maxRPS := intFromConfig(cfg, "max_rps", 100)
+	rpsStep := intFromConfig(cfg, "rps_step", 5)
+	stepDurationSec := intFromConfig(cfg, "step_duration_seconds", 3)
+
 	targetURL := stringFromConfig(cfg, "target_url", "")
+	method := stringFromConfig(cfg, "method", "GET")
+	if method == "" {
+		method = "GET"
+	}
 	if targetURL == "" {
 		return map[string]any{"error": "target_url required"}, "failed"
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(durationSec+2)*time.Second)
+	headersMap := make(map[string]string)
+	if hRaw, ok := cfg["headers"].(map[string]any); ok {
+		for k, v := range hRaw {
+			if strVal, ok := v.(string); ok {
+				headersMap[k] = strVal
+			}
+		}
+	}
+	bodyStr := stringFromConfig(cfg, "body", "")
+
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	hc := e.hc
-	interval := time.Second / time.Duration(rps)
-	deadline := time.Now().Add(time.Duration(durationSec) * time.Second)
 
-	var rateLimited, total int
-	for time.Now().Before(deadline) {
-		req, err := http.NewRequestWithContext(ctx, "GET", targetURL, nil)
-		if err != nil {
-			break
-		}
-		resp, err := hc.Do(req)
-		total++
-		if err == nil {
-			if resp.StatusCode == 429 {
-				rateLimited++
-			}
-			resp.Body.Close()
-		}
-		select {
-		case <-ctx.Done():
-			goto done
-		case <-time.After(interval):
-		}
+	var breakingPointDetected bool
+	var breakingRPS int
+
+	currentRPS := int32(startRPS)
+
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+
+	totalSteps := ((maxRPS - startRPS) / rpsStep) + 1
+	if totalSteps <= 0 {
+		totalSteps = 1
 	}
-done:
+	totalDurationSec := totalSteps * stepDurationSec
+
+	timer := time.NewTimer(time.Duration(totalDurationSec) * time.Second)
+	defer timer.Stop()
+
+	go func() {
+		<-timer.C
+		close(done)
+	}()
+
+	// Step-up ticker
+	go func() {
+		stepTicker := time.NewTicker(time.Duration(stepDurationSec) * time.Second)
+		defer stepTicker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			case <-stepTicker.C:
+				next := atomic.LoadInt32(&currentRPS) + int32(rpsStep)
+				if next > int32(maxRPS) {
+					next = int32(maxRPS)
+				}
+				atomic.StoreInt32(&currentRPS, next)
+			}
+		}
+	}()
+
+	var totalRequests int64
+	var rateLimitedCount int64
+	var errorCount int64
+
+	// Asynchronous dispatcher
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		var lastRPS int32
+		var ticker *time.Ticker
+
+		for {
+			cur := atomic.LoadInt32(&currentRPS)
+			if ticker == nil || cur != lastRPS {
+				if ticker != nil {
+					ticker.Stop()
+				}
+				if cur > 0 {
+					ticker = time.NewTicker(time.Duration(time.Second.Nanoseconds() / int64(cur)))
+				}
+				lastRPS = cur
+			}
+
+			select {
+			case <-done:
+				if ticker != nil {
+					ticker.Stop()
+				}
+				return
+			case <-ctx.Done():
+				if ticker != nil {
+					ticker.Stop()
+				}
+				return
+			case <-ticker.C:
+				atomic.AddInt64(&totalRequests, 1)
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					var bodyReader *bytes.Reader
+					if bodyStr != "" {
+						bodyReader = bytes.NewReader([]byte(bodyStr))
+					}
+					var req *http.Request
+					var err error
+					if bodyReader != nil {
+						req, err = http.NewRequestWithContext(ctx, method, targetURL, bodyReader)
+					} else {
+						req, err = http.NewRequestWithContext(ctx, method, targetURL, nil)
+					}
+					if err == nil {
+						for k, v := range headersMap {
+							req.Header.Set(k, v)
+						}
+						resp, err := hc.Do(req)
+
+						if err != nil {
+							atomic.AddInt64(&errorCount, 1)
+						} else {
+							if resp.StatusCode == 429 {
+								atomic.AddInt64(&rateLimitedCount, 1)
+							} else if resp.StatusCode >= 400 {
+								atomic.AddInt64(&errorCount, 1)
+							}
+							resp.Body.Close()
+						}
+					} else {
+						atomic.AddInt64(&errorCount, 1)
+					}
+				}()
+			}
+		}
+	}()
+
+	// Live metrics publisher & breaking point detector
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		tick := time.NewTicker(time.Second)
+		defer tick.Stop()
+		second := 0
+		var lastRL int64
+		var lastTotal int64
+
+		for {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+				second++
+
+				rlCount := atomic.LoadInt64(&rateLimitedCount)
+				totCount := atomic.LoadInt64(&totalRequests)
+
+				recentRL := rlCount - lastRL
+				recentTotal := totCount - lastTotal
+
+				lastRL = rlCount
+				lastTotal = totCount
+
+				if recentTotal == 0 {
+					continue
+				}
+
+				curRPS := int(atomic.LoadInt32(&currentRPS))
+
+				if !breakingPointDetected && recentRL > 0 {
+					breakingPointDetected = true
+					breakingRPS = curRPS
+					
+					// Halt early if limit found
+					go func() {
+						defer func(){ recover() }()
+						close(done)
+					}()
+				}
+
+				_ = natsclient.Publish(e.nc, "results.metric", map[string]any{
+					"time":           time.Now(),
+					"project_id":     p.ProjectID,
+					"run_id":         p.RunID,
+					"endpoint":       targetURL,
+					"method":         method,
+					"status_code":    200,
+					"latency_ms":     0,
+					"error":          recentRL > 0,
+					"rps":            recentTotal,
+					"active_rps":     curRPS,
+					"rate_limited":   recentRL,
+					"second":         second,
+					"breaking_point": breakingPointDetected,
+				})
+			}
+		}
+	}()
+
+	<-done
+	cancel() // Ensure we don't leak anything
+	wg.Wait()
+
+	total := atomic.LoadInt64(&totalRequests)
+	rateLimited := atomic.LoadInt64(&rateLimitedCount)
 
 	rateLimitPct := 0.0
 	if total > 0 {
 		rateLimitPct = float64(rateLimited) / float64(total) * 100
 	}
 
-	return map[string]any{
+	summary := map[string]any{
 		"total_requests":      total,
 		"rate_limited_count":  rateLimited,
 		"rate_limited_pct":    rateLimitPct,
-		"rate_limit_detected": rateLimitPct > 0,
-		"configured_rps":      rps,
-	}, "completed"
+		"rate_limit_detected": breakingPointDetected,
+	}
+
+	if breakingPointDetected {
+		summary["breaking_rps"] = breakingRPS
+	}
+
+	return summary, "completed"
 }
 
 func (e *PerfExecutor) runFuzz(p PerfRunPayload) (map[string]any, string) {

@@ -44,11 +44,12 @@ class PerfConfigSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError({"config": {field: f"{label} must be a positive number."}})
 
         elif test_type == "rate_limit":
-            rps = config.get("rps")
-            if rps is None:
-                raise serializers.ValidationError({"config": {"rps": "rps is required for rate_limit tests."}})
-            if not isinstance(rps, (int, float)) or rps <= 0:
-                raise serializers.ValidationError({"config": {"rps": "rps must be a positive number."}})
+            for field, label in [("start_rps", "start_rps"), ("max_rps", "max_rps"), ("rps_step", "rps_step"), ("step_duration_seconds", "step_duration_seconds")]:
+                val = config.get(field)
+                if val is None:
+                    raise serializers.ValidationError({"config": {field: f"{label} is required for rate_limit tests."}})
+                if not isinstance(val, (int, float)) or val <= 0:
+                    raise serializers.ValidationError({"config": {field: f"{label} must be a positive number."}})
 
         elif test_type == "fuzz":
             iterations = config.get("iterations")

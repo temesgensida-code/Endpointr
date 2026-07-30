@@ -42,7 +42,9 @@ export default function PerformanceView({ getToken, projectId, onNavigate }) {
     step_duration_seconds: 5,
     max_error_rate_pct: 5,
     max_p95_latency_ms: 2000,
-    target_rps: 50,
+    start_rps: 5,
+    max_rps: 100,
+    rps_step: 10,
     headers: '{\n  "Accept": "application/json"\n}',
     body: '{\n  "key": "value"\n}'
   })
@@ -152,7 +154,9 @@ export default function PerformanceView({ getToken, projectId, onNavigate }) {
           step_duration_seconds: Number(draft.step_duration_seconds),
           max_error_rate_pct: Number(draft.max_error_rate_pct),
           max_p95_latency_ms: Number(draft.max_p95_latency_ms),
-          target_rps: Number(draft.target_rps),
+          start_rps: Number(draft.start_rps),
+          max_rps: Number(draft.max_rps),
+          rps_step: Number(draft.rps_step),
           headers: parsedHeaders,
           body: ['POST', 'PUT', 'PATCH'].includes(draft.method) ? draft.body : undefined
         }
@@ -386,6 +390,34 @@ export default function PerformanceView({ getToken, projectId, onNavigate }) {
                         </div>
                       </div>
                     </>
+                  ) : draft.type === 'rate_limit' ? (
+                    <>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: 10, color: 'var(--tx-muted)' }}>Start RPS</label>
+                          <input type="number" value={draft.start_rps} onChange={e => setDraft(d => ({ ...d, start_rps: e.target.value }))} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: 10, color: 'var(--tx-muted)' }}>Max RPS</label>
+                          <input type="number" value={draft.max_rps} onChange={e => setDraft(d => ({ ...d, max_rps: e.target.value }))} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: 10, color: 'var(--tx-muted)' }}>Step Increment</label>
+                          <input type="number" value={draft.rps_step} onChange={e => setDraft(d => ({ ...d, rps_step: e.target.value }))} />
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: 10, color: 'var(--tx-muted)' }}>Step Duration (sec)</label>
+                          <input type="number" value={draft.step_duration_seconds} onChange={e => setDraft(d => ({ ...d, step_duration_seconds: e.target.value }))} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: 10, color: 'var(--tx-muted)' }}>Target URL is Required</label>
+                          <input type="text" value="Auto-stops on 429" disabled style={{ color: 'var(--tx-muted)', background: 'var(--bg-subtle)' }} />
+                        </div>
+                      </div>
+                    </>
                   ) : (
                     <div style={{ display: 'flex', gap: 6 }}>
                       <div style={{ flex: 1 }}>
@@ -583,6 +615,7 @@ export default function PerformanceView({ getToken, projectId, onNavigate }) {
           runId={activeRunId}
           title={selectedConfig?.name}
           type="perf"
+          perfType={selectedConfig?.type}
           onClose={() => setActiveRunId(null)}
           onCompleted={async () => {
             if (selectedConfig && currentProjectId) {
