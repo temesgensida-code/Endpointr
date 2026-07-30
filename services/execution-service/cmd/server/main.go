@@ -44,8 +44,8 @@ func main() {
 	}
 	defer nc.Close()
 
-	r := runner.New(nc, controlPlaneURL, logger, workerCount)
-	if err := r.SubscribeAll(ctx); err != nil {
+	d := runner.NewDispatcher(nc, logger, workerCount, controlPlaneURL)
+	if err := d.Start(ctx); err != nil {
 		logger.Fatal("Subscription failed", zap.Error(err))
 	}
 

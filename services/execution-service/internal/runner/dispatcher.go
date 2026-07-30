@@ -35,10 +35,11 @@ type PerfRunPayload struct {
 
 // Dispatcher manages subscriptions and a worker pool.
 type Dispatcher struct {
-	nc          *natsgo.Conn
-	log         *zap.Logger
-	workerCount int
-	jobCh       chan job
+	nc              *natsgo.Conn
+	log             *zap.Logger
+	workerCount     int
+	jobCh           chan job
+	controlPlaneURL string
 }
 
 type job struct {
@@ -47,12 +48,13 @@ type job struct {
 }
 
 // NewDispatcher creates a Dispatcher with workerCount goroutines.
-func NewDispatcher(nc *natsgo.Conn, log *zap.Logger, workerCount int) *Dispatcher {
+func NewDispatcher(nc *natsgo.Conn, log *zap.Logger, workerCount int, controlPlaneURL string) *Dispatcher {
 	return &Dispatcher{
-		nc:          nc,
-		log:         log,
-		workerCount: workerCount,
-		jobCh:       make(chan job, workerCount*4),
+		nc:              nc,
+		log:             log,
+		workerCount:     workerCount,
+		jobCh:           make(chan job, workerCount*4),
+		controlPlaneURL: controlPlaneURL,
 	}
 }
 
@@ -74,9 +76,13 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 	if _, err := d.nc.Subscribe(SubjectWorkflowRun, handler); err != nil {
 		return err
 	}
+	d.log.Info("Subscribed to subject", zap.String("subject", SubjectWorkflowRun))
+	
 	if _, err := d.nc.Subscribe(SubjectPerfRun, handler); err != nil {
 		return err
 	}
+	d.log.Info("Subscribed to subject", zap.String("subject", SubjectPerfRun))
+	
 	return nil
 }
 
@@ -100,7 +106,7 @@ func (d *Dispatcher) handle(j job) {
 			return
 		}
 		d.log.Info("Executing workflow run", zap.String("run_id", p.RunID))
-		executor := NewWorkflowExecutor(d.nc, d.log)
+		executor := NewWorkflowExecutor(d.nc, d.log, d.controlPlaneURL)
 		executor.Execute(p)
 
 	case SubjectPerfRun:
@@ -110,7 +116,7 @@ func (d *Dispatcher) handle(j job) {
 			return
 		}
 		d.log.Info("Executing perf run", zap.String("run_id", p.RunID), zap.String("type", p.Type))
-		executor := NewPerfExecutor(d.nc, d.log)
+		executor := NewPerfExecutor(d.nc, d.log, d.controlPlaneURL)
 		executor.Execute(p)
 	}
 }

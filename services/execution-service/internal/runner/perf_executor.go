@@ -3,6 +3,7 @@ package runner
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
@@ -21,15 +22,17 @@ import (
 // PerfExecutor runs load, stress, rate-limit, and fuzz tests.
 // Uses goroutines for concurrency; publishes per-second metrics to NATS.
 type PerfExecutor struct {
-	nc  *natsgo.Conn
-	log *zap.Logger
-	hc  *http.Client
+	nc              *natsgo.Conn
+	log             *zap.Logger
+	hc              *http.Client
+	controlPlaneURL string
 }
 
-func NewPerfExecutor(nc *natsgo.Conn, log *zap.Logger) *PerfExecutor {
+func NewPerfExecutor(nc *natsgo.Conn, log *zap.Logger, controlPlaneURL string) *PerfExecutor {
 	return &PerfExecutor{
-		nc:  nc,
-		log: log,
+		nc:              nc,
+		log:             log,
+		controlPlaneURL: controlPlaneURL,
 		hc: &http.Client{
 			Timeout: 10 * time.Second,
 			Transport: &http.Transport{
@@ -53,6 +56,7 @@ func (e *PerfExecutor) Execute(p PerfRunPayload) {
 	_ = natsclient.Publish(e.nc, "results.run.status", map[string]any{
 		"run_id": p.RunID, "status": "running", "started_at": startedAt,
 	})
+	e.patchRunStatus(p.RunID, "running")
 
 	var summary map[string]any
 	var status string
@@ -83,12 +87,43 @@ func (e *PerfExecutor) Execute(p PerfRunPayload) {
 		"status":     status,
 		"summary":    summary,
 	})
+	e.patchPerfRunSummary(p.RunID, status, summary)
 
 	e.log.Info("Perf run complete",
 		zap.String("run_id", p.RunID),
 		zap.String("type", p.Type),
 		zap.String("status", status),
 	)
+}
+
+func (e *PerfExecutor) patchRunStatus(runID, status string) {
+	e.patchJSON(fmt.Sprintf("/perf-runs/%s/", runID), map[string]interface{}{"status": status})
+}
+
+func (e *PerfExecutor) patchPerfRunSummary(runID, status string, summary map[string]interface{}) {
+	e.patchJSON(fmt.Sprintf("/perf-runs/%s/", runID), map[string]interface{}{
+		"status":  status,
+		"summary": summary,
+	})
+}
+
+func (e *PerfExecutor) patchJSON(path string, body map[string]interface{}) {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return
+	}
+	url := e.controlPlaneURL + "/internal" + path
+	req, err := http.NewRequest(http.MethodPatch, url, bytes.NewReader(data))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := e.hc.Do(req)
+	if err != nil {
+		e.log.Error("PATCH internal endpoint error", zap.String("url", url), zap.Error(err))
+		return
+	}
+	defer resp.Body.Close()
 }
 
 // runLoad executes a load test using configured VUs and duration.

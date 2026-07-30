@@ -1,7 +1,9 @@
 package runner
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
@@ -14,17 +16,18 @@ import (
 	natsclient "github.com/endpointr/execution-service/internal/nats"
 )
 
-// WorkflowExecutor runs a React-Flow DAG with concurrent branch execution.
 type WorkflowExecutor struct {
-	nc  *natsgo.Conn
-	log *zap.Logger
-	hc  *http.Client
+	nc              *natsgo.Conn
+	log             *zap.Logger
+	hc              *http.Client
+	controlPlaneURL string
 }
 
-func NewWorkflowExecutor(nc *natsgo.Conn, log *zap.Logger) *WorkflowExecutor {
+func NewWorkflowExecutor(nc *natsgo.Conn, log *zap.Logger, controlPlaneURL string) *WorkflowExecutor {
 	return &WorkflowExecutor{
-		nc:  nc,
-		log: log,
+		nc:              nc,
+		log:             log,
+		controlPlaneURL: controlPlaneURL,
 		hc: &http.Client{
 			Timeout: 30 * time.Second,
 			Transport: &http.Transport{
@@ -189,6 +192,7 @@ func (e *WorkflowExecutor) finishRun(p WorkflowRunPayload, startedAt time.Time, 
 	if err := natsclient.Publish(e.nc, "results.run.completed", event); err != nil {
 		e.log.Error("Failed to publish run result", zap.String("run_id", p.RunID), zap.Error(err))
 	}
+	e.patchRunStatus(p.RunID, finalStatus)
 
 	e.log.Info("Workflow run complete (parallel DAG execution)",
 		zap.String("run_id", p.RunID),
@@ -196,6 +200,26 @@ func (e *WorkflowExecutor) finishRun(p WorkflowRunPayload, startedAt time.Time, 
 		zap.Int("passed", passed),
 		zap.Int("failed", failed),
 	)
+}
+
+func (e *WorkflowExecutor) patchRunStatus(runID, status string) {
+	body := map[string]interface{}{"status": status}
+	data, err := json.Marshal(body)
+	if err != nil {
+		return
+	}
+	url := e.controlPlaneURL + "/internal/workflow-runs/" + runID + "/"
+	req, err := http.NewRequest(http.MethodPatch, url, bytes.NewReader(data))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := e.hc.Do(req)
+	if err != nil {
+		e.log.Error("PATCH internal endpoint error", zap.String("url", url), zap.Error(err))
+		return
+	}
+	defer resp.Body.Close()
 }
 
 func parseDAG(definition map[string]any) (map[string]node, map[string]int, map[string][]string) {
