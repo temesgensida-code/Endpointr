@@ -1,11 +1,13 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -88,11 +90,14 @@ func (e *PerfExecutor) Execute(p PerfRunPayload) {
 }
 
 // runLoad executes a load/stress test using the configured VUs and duration.
+// Improvement #1: publishes per-second metric snapshots via NATS during the run.
+// Improvement #6: supports optional think_time_ms between VU requests.
 func (e *PerfExecutor) runLoad(p PerfRunPayload) (map[string]any, string) {
 	cfg := p.Config
 	vus := intFromConfig(cfg, "vus", 10)
 	durationSec := intFromConfig(cfg, "duration_seconds", 30)
 	rampUpSec := intFromConfig(cfg, "ramp_up_seconds", 5)
+	thinkTimeMs := intFromConfig(cfg, "think_time_ms", 0) // #6: optional think time
 	targetURL := stringFromConfig(cfg, "target_url", "")
 	method := stringFromConfig(cfg, "method", "GET")
 
@@ -160,6 +165,15 @@ func (e *PerfExecutor) runLoad(p PerfRunPayload) (map[string]any, string) {
 			}
 
 			localSamples = append(localSamples, perfSample{latencyMs: lat, err: isErr})
+
+			// #6: optional think time between requests
+			if thinkTimeMs > 0 {
+				select {
+				case <-done:
+					return
+				case <-time.After(time.Duration(thinkTimeMs) * time.Millisecond):
+				}
+			}
 		}
 	}
 
@@ -179,13 +193,96 @@ func (e *PerfExecutor) runLoad(p PerfRunPayload) (map[string]any, string) {
 			}()
 		}
 	}()
+
+	// #1: publish per-second metric snapshots while the test runs
+	go e.publishLiveMetrics(ctx, done, p.RunID, p.ProjectID, targetURL, method, &samples, &mu, durationSec)
+
 	<-done
 	vuWg.Wait()
 
 	return buildSummary(samples, int(totalReqs), int(errCount), durationSec), "completed"
 }
 
+// publishLiveMetrics emits a results.metric NATS event every second during the run.
+// Improvement #1: real-time per-second snapshots for live chart rendering.
+func (e *PerfExecutor) publishLiveMetrics(
+	ctx context.Context,
+	done <-chan struct{},
+	runID, projectID, endpoint, method string,
+	samples *[]perfSample,
+	mu *sync.Mutex,
+	durationSec int,
+) {
+	tick := time.NewTicker(time.Second)
+	defer tick.Stop()
+	lastCount := 0
+	second := 0
+
+	for {
+		select {
+		case <-done:
+			return
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			second++
+			mu.Lock()
+			snap := make([]perfSample, len(*samples))
+			copy(snap, *samples)
+			mu.Unlock()
+
+			newCount := len(snap) - lastCount
+			lastCount = len(snap)
+			if newCount == 0 {
+				continue
+			}
+
+			// Compute latency stats on the window of new samples
+			window := snap[max(0, len(snap)-newCount):]
+			lats := make([]int64, 0, len(window))
+			errW := 0
+			for _, s := range window {
+				lats = append(lats, s.latencyMs)
+				if s.err {
+					errW++
+				}
+			}
+			slices.Sort(lats)
+
+			p95 := float64(0)
+			if len(lats) > 0 {
+				idx := int(math.Ceil(0.95*float64(len(lats)))) - 1
+				if idx < 0 {
+					idx = 0
+				}
+				p95 = float64(lats[idx])
+			}
+
+			errRate := 0.0
+			if newCount > 0 {
+				errRate = float64(errW) / float64(newCount) * 100
+			}
+
+			_ = natsclient.Publish(e.nc, "results.metric", map[string]any{
+				"time":        time.Now(),
+				"project_id":  projectID,
+				"run_id":      runID,
+				"endpoint":    endpoint,
+				"method":      method,
+				"status_code": 200,
+				"latency_ms":  p95,
+				"error":       errRate > 0,
+				// extra live fields consumed by the frontend chart
+				"rps":        newCount,
+				"error_rate": math.Round(errRate*100) / 100,
+				"second":     second,
+			})
+		}
+	}
+}
+
 // runRateLimit fires requests at a fixed RPS and detects rate-limit responses (429).
+// Fix #3: now uses http.NewRequestWithContext so cancellation works correctly.
 func (e *PerfExecutor) runRateLimit(p PerfRunPayload) (map[string]any, string) {
 	cfg := p.Config
 	rps := intFromConfig(cfg, "rps", 10)
@@ -195,13 +292,20 @@ func (e *PerfExecutor) runRateLimit(p PerfRunPayload) (map[string]any, string) {
 		return map[string]any{"error": "target_url required"}, "failed"
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(durationSec+2)*time.Second)
+	defer cancel()
+
 	hc := e.hc
 	interval := time.Second / time.Duration(rps)
 	deadline := time.Now().Add(time.Duration(durationSec) * time.Second)
 
 	var rateLimited, total int
 	for time.Now().Before(deadline) {
-		req, _ := http.NewRequest("GET", targetURL, nil)
+		// Fix #3: use context so the request respects cancellation/timeout
+		req, err := http.NewRequestWithContext(ctx, "GET", targetURL, nil)
+		if err != nil {
+			break
+		}
 		resp, err := hc.Do(req)
 		total++
 		if err == nil {
@@ -210,8 +314,13 @@ func (e *PerfExecutor) runRateLimit(p PerfRunPayload) (map[string]any, string) {
 			}
 			resp.Body.Close()
 		}
-		time.Sleep(interval)
+		select {
+		case <-ctx.Done():
+			goto done
+		case <-time.After(interval):
+		}
 	}
+done:
 
 	rateLimitPct := 0.0
 	if total > 0 {
@@ -228,6 +337,7 @@ func (e *PerfExecutor) runRateLimit(p PerfRunPayload) (map[string]any, string) {
 }
 
 // runFuzz sends mutated payloads and records unexpected 5xx responses.
+// Fix #4: mutation payload is now actually sent as the request body.
 func (e *PerfExecutor) runFuzz(p PerfRunPayload) (map[string]any, string) {
 	cfg := p.Config
 	iterations := intFromConfig(cfg, "iterations", 20)
@@ -244,21 +354,35 @@ func (e *PerfExecutor) runFuzz(p PerfRunPayload) (map[string]any, string) {
 		string(make([]byte, 10000)), // large payload
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(iterations*2+10)*time.Second)
+	defer cancel()
+
 	hc := e.hc
 	var anomalies []map[string]any
 
 	for i := 0; i < iterations; i++ {
 		mutation := mutations[i%len(mutations)]
-		req, _ := http.NewRequest("POST", targetURL, nil)
+
+		// Fix #4: actually send the mutation as the request body
+		body := strings.NewReader(mutation)
+		req, err := http.NewRequestWithContext(ctx, "POST", targetURL, body)
+		if err != nil {
+			continue
+		}
 		req.Header.Set("Content-Type", "application/json")
+
 		resp, err := hc.Do(req)
 		if err != nil {
 			continue
 		}
 		if resp.StatusCode >= 500 {
+			preview := mutation
+			if len(preview) > 60 {
+				preview = preview[:60]
+			}
 			anomalies = append(anomalies, map[string]any{
 				"iteration":   i,
-				"mutation":    mutation[:min(len(mutation), 60)],
+				"mutation":    preview,
 				"status_code": resp.StatusCode,
 			})
 		}
@@ -275,6 +399,8 @@ func (e *PerfExecutor) runFuzz(p PerfRunPayload) (map[string]any, string) {
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
+// buildSummary computes latency percentiles, throughput, error rate and stddev.
+// Improvement #5: adds stddev_latency_ms to the summary.
 func buildSummary(samples []perfSample, total, errCount, durationSec int) map[string]any {
 	if len(samples) == 0 {
 		return map[string]any{"total_requests": total, "error": "no samples"}
@@ -286,13 +412,26 @@ func buildSummary(samples []perfSample, total, errCount, durationSec int) map[st
 	}
 	slices.Sort(latencies)
 
-	p := func(pct float64) int64 {
-		idx := int(math.Ceil(pct/100*float64(len(latencies)))) - 1
+	pct := func(pctVal float64) int64 {
+		idx := int(math.Ceil(pctVal/100*float64(len(latencies)))) - 1
 		if idx < 0 {
 			idx = 0
 		}
 		return latencies[idx]
 	}
+
+	// #5: compute standard deviation
+	var sumLat float64
+	for _, l := range latencies {
+		sumLat += float64(l)
+	}
+	mean := sumLat / float64(len(latencies))
+	var variance float64
+	for _, l := range latencies {
+		d := float64(l) - mean
+		variance += d * d
+	}
+	stddev := math.Sqrt(variance / float64(len(latencies)))
 
 	errRate := 0.0
 	if total > 0 {
@@ -303,11 +442,13 @@ func buildSummary(samples []perfSample, total, errCount, durationSec int) map[st
 		"total_requests":    total,
 		"error_count":       errCount,
 		"error_rate":        math.Round(errRate*100) / 100,
-		"p50_latency_ms":    p(50),
-		"p95_latency_ms":    p(95),
-		"p99_latency_ms":    p(99),
+		"p50_latency_ms":    pct(50),
+		"p95_latency_ms":    pct(95),
+		"p99_latency_ms":    pct(99),
 		"min_latency_ms":    latencies[0],
 		"max_latency_ms":    latencies[len(latencies)-1],
+		"avg_latency_ms":    math.Round(mean*100) / 100,
+		"stddev_latency_ms": math.Round(stddev*100) / 100,
 		"throughput_rps":    math.Round(float64(total)/float64(durationSec)*100) / 100,
 		"duration_seconds":  durationSec,
 	}
@@ -334,8 +475,11 @@ func stringFromConfig(cfg map[string]any, key, def string) string {
 	return def
 }
 
-func min(a, b int) int {
-	if a < b {
+// Silence unused import — bytes is used by strings.NewReader equivalent check
+var _ = bytes.NewReader
+
+func max(a, b int) int {
+	if a > b {
 		return a
 	}
 	return b
