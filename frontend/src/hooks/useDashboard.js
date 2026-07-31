@@ -17,11 +17,11 @@ export function useDashboard(getToken, projectId) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
-  const reportsSvc = reportsService(getToken)
-  const monitorSvc = monitoringService(getToken)
+  const reportsSvc = reportsService()
+  const monitorSvc = monitoringService()
 
   const refetch = useCallback(async () => {
-    if (!projectId || !getToken) return
+    if (!projectId) return
     setLoading(true)
     setError(null)
     try {
@@ -36,11 +36,12 @@ export function useDashboard(getToken, projectId) {
     } finally {
       setLoading(false)
     }
-  }, [getToken, projectId])
+  }, [projectId])
 
   useEffect(() => {
-    if (getToken && projectId) refetch()
-  }, [getToken, projectId, refetch])
+    if (projectId) refetch()
+  }, [projectId, refetch])
 
   return { kpis, monitorStatus, loading, error, refetch }
 }
+
