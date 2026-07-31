@@ -18,18 +18,15 @@ export function useRunLive(getToken, runId) {
   const [connected, setConnected] = useState(false)
   const wsRef = useRef(null)
 
-  const connect = useCallback(async () => {
-    if (!runId || !getToken) return
-
-    const token = await getToken()
-    if (!token) return
+  const connect = useCallback(() => {
+    if (!runId) return
 
     // Close any existing connection
     if (wsRef.current) {
       wsRef.current.close()
     }
 
-    const url = `${WS_BASE}/ws/runs/${runId}/live/?token=${encodeURIComponent(token)}`
+    const url = `${WS_BASE}/ws/runs/${runId}/live/`
     const ws = new WebSocket(url)
     wsRef.current = ws
 
@@ -51,7 +48,7 @@ export function useRunLive(getToken, runId) {
 
     ws.onclose = () => setConnected(false)
     ws.onerror = () => setConnected(false)
-  }, [getToken, runId])
+  }, [runId])
 
   useEffect(() => {
     if (runId) {
@@ -75,15 +72,12 @@ export function useProjectLive(getToken, projectId, onEvent) {
   const [connected, setConnected] = useState(false)
 
   useEffect(() => {
-    if (!projectId || !getToken) return
+    if (!projectId) return
 
     let cancelled = false
 
-    const connect = async () => {
-      const token = await getToken()
-      if (!token || cancelled) return
-
-      const url = `${WS_BASE}/ws/projects/${projectId}/live/?token=${encodeURIComponent(token)}`
+    const connect = () => {
+      const url = `${WS_BASE}/ws/projects/${projectId}/live/`
       const ws = new WebSocket(url)
       wsRef.current = ws
 
@@ -104,7 +98,8 @@ export function useProjectLive(getToken, projectId, onEvent) {
       cancelled = true
       if (wsRef.current) wsRef.current.close()
     }
-  }, [getToken, projectId])
+  }, [projectId, onEvent])
 
   return { connected }
 }
+
