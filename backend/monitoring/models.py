@@ -43,3 +43,20 @@ class Incident(models.Model):
 
     def __str__(self):
         return f"Incident on {self.monitor.name} [{self.status}]"
+
+
+class MonitorProbeLog(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    monitor = models.ForeignKey(Monitor, on_delete=models.CASCADE, related_name="probe_logs")
+    status_code = models.IntegerField(null=True, blank=True)
+    latency_ms = models.IntegerField(default=0)
+    success = models.BooleanField(default=True)
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Log for {self.monitor.name} at {self.created_at} [{self.status_code}]"
+

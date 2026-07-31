@@ -4,9 +4,11 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import NotFound
 from rest_framework import serializers
 from django.utils import timezone
+from django.db.models import Avg
 
 from projects.permissions import IsProjectMember, IsProjectEditor
-from .models import Monitor, Incident
+from .models import Monitor, Incident, MonitorProbeLog
+from .prober import execute_single_probe
 
 
 class MonitorSerializer(serializers.ModelSerializer):
@@ -24,6 +26,12 @@ class IncidentSerializer(serializers.ModelSerializer):
         model = Incident
         fields = ["id", "monitor", "status", "started_at", "resolved_at", "cause", "details"]
         read_only_fields = ["id", "started_at"]
+
+
+class MonitorProbeLogSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MonitorProbeLog
+        fields = ["id", "monitor", "status_code", "latency_ms", "success", "error_message", "created_at"]
 
 
 class MonitorListCreateView(APIView):
@@ -70,8 +78,22 @@ class MonitorDetailView(APIView):
         return Response(status=204)
 
 
+class ProbeNowView(APIView):
+    """POST /projects/<project_pk>/monitoring/<pk>/probe/ — instant manual health check."""
+    permission_classes = [IsAuthenticated, IsProjectEditor]
+
+    def post(self, request, project_pk, pk):
+        try:
+            mon = Monitor.objects.get(pk=pk, project_id=project_pk)
+        except Monitor.DoesNotExist:
+            raise NotFound("Monitor not found.")
+        
+        log = execute_single_probe(mon)
+        return Response(MonitorProbeLogSerializer(log).data)
+
+
 class MonitorStatusView(APIView):
-    """GET /projects/<project_pk>/monitoring/status/ — summary of all monitors."""
+    """GET /projects/<project_pk>/monitoring/status/ — summary of all monitors with SLA & logs."""
     permission_classes = [IsAuthenticated, IsProjectMember]
 
     def get(self, request, project_pk):
@@ -88,10 +110,23 @@ class MonitorStatusView(APIView):
 
         data = []
         for mon in monitors:
+            logs = list(MonitorProbeLog.objects.filter(monitor=mon)[:30])
+            total_logs = len(logs)
+            success_count = sum(1 for l in logs if l.success)
+            
+            uptime_30d = 100.0
+            if total_logs > 0:
+                uptime_30d = round((success_count / total_logs) * 100, 2)
+
+            avg_latency = round(sum(l.latency_ms for l in logs) / total_logs, 1) if total_logs > 0 else 0
+
             data.append({
                 **MonitorSerializer(mon).data,
                 "open_incidents": incident_by_monitor.get(str(mon.id), []),
                 "operational": str(mon.id) not in incident_by_monitor,
+                "uptime_30d": uptime_30d,
+                "avg_latency_ms": avg_latency,
+                "recent_logs": MonitorProbeLogSerializer(logs, many=True).data,
             })
         return Response(data)
 
@@ -122,3 +157,4 @@ class IncidentResolveView(APIView):
         incident.resolved_at = timezone.now()
         incident.save(update_fields=["status", "resolved_at"])
         return Response(IncidentSerializer(incident).data)
+

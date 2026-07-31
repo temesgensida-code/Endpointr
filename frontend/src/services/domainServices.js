@@ -18,6 +18,8 @@ export function monitoringService(getToken) {
       api.patch(`${base(projectId)}/${monitorId}/`, data),
     deleteMonitor: (projectId, monitorId) =>
       api.delete(`${base(projectId)}/${monitorId}/`),
+    probeNow: (projectId, monitorId) =>
+      api.post(`${base(projectId)}/${monitorId}/probe/`, {}),
     listIncidents: (projectId, monitorId, status) => {
       const qs = status ? `?status=${status}` : ''
       return api.get(`${base(projectId)}/${monitorId}/incidents/${qs}`)
