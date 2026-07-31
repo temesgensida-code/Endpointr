@@ -1,5 +1,18 @@
-./env.example
-# Local secrets (Gemini/Clerk keys)
-.env.example
-.env.example.*
+# Dependencies & Virtual Envs
+node_modules/
+.venv/
+venv/
+vendor/
+wheels/
+backend/wheels/
+
+# Databases & Local state
+*.sqlite3
+db.sqlite3
+.gemini/
+.DS_Store
+
+# Environment files
+.env
+.env.local
 !.env.example
