@@ -24,6 +24,9 @@ def user_has_role(request, project_id, min_role="viewer"):
     # Superuser bypass (only for Django admin users, rare)
     if getattr(request.user, "is_superuser", False):
         return True
+    from .models import Project
+    if Project.objects.filter(id=project_id, owner_clerk_id=clerk_id).exists():
+        return True
     try:
         member = ProjectMember.objects.get(project_id=project_id, clerk_user_id=clerk_id)
         return ROLE_HIERARCHY.get(member.role, 0) >= ROLE_HIERARCHY.get(min_role, 0)
