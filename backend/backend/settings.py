@@ -207,6 +207,9 @@ CORS_ALLOW_HEADERS = [
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'Authentication.drf_auth.ClerkJWTAuthentication',
+        'Authentication.drf_auth.SingleUserAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.AllowAny',
     ],
 }
