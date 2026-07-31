@@ -60,12 +60,23 @@ export default function WorkflowsView({ getToken, projectId, onNavigate }) {
     }
   }
 
-  async function createWorkflow() {
-    if (!newName.trim()) return
-    const wf = await svc.create(projectId, { name: newName.trim(), definition: { nodes: [], edges: [] } })
-    setWorkflows(p => [wf, ...p])
-    setNewName(''); setShowForm(false)
-    openWorkflow(wf)
+  const [creating, setCreating] = useState(false)
+
+  async function createWorkflow(e) {
+    if (e) e.preventDefault()
+    if (!newName.trim() || creating) return
+    setCreating(true)
+    try {
+      const wf = await svc.create(projectId, { name: newName.trim(), definition: { nodes: [], edges: [] } })
+      setWorkflows(p => [wf, ...p])
+      setNewName('')
+      setShowForm(false)
+      openWorkflow(wf)
+    } catch (err) {
+      alert('Failed to create workflow: ' + (err.message || 'Unknown error'))
+    } finally {
+      setCreating(false)
+    }
   }
 
   async function openWorkflow(wf) {
@@ -197,10 +208,18 @@ export default function WorkflowsView({ getToken, projectId, onNavigate }) {
         </div>
 
         {showForm && (
-          <div style={{ padding: 'var(--s3)', borderBottom: '1px solid var(--border)', background: 'var(--bg-overlay)', display: 'flex', gap: 6 }}>
-            <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Workflow name" autoFocus style={{ fontSize: 11 }} />
-            <button className="btn btn-ghost btn-xs" onClick={createWorkflow}>Add</button>
-          </div>
+          <form onSubmit={createWorkflow} style={{ padding: 'var(--s3)', borderBottom: '1px solid var(--border)', background: 'var(--bg-overlay)', display: 'flex', gap: 6 }}>
+            <input
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              placeholder="Workflow name"
+              autoFocus
+              style={{ fontSize: 11, flex: 1 }}
+            />
+            <button type="submit" className="btn btn-primary btn-xs" disabled={creating || !newName.trim()}>
+              {creating ? '...' : 'Add'}
+            </button>
+          </form>
         )}
 
         <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--s2)' }}>
