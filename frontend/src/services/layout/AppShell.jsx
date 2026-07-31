@@ -1,5 +1,4 @@
 import { useState, useCallback } from 'react'
-import { UserButton, useAuth } from '@clerk/react'
 import Sidebar from './Sidebar'
 import Navbar from './Navbar'
 import RequestBuilder from '../dashboard/RequestBuilder'
@@ -13,7 +12,9 @@ import SecurityView from '../security/SecurityView'
 import DashboardView from '../dashboard/DashboardView'
 
 export default function AppShell() {
-  const { getToken, userId } = useAuth()
+  const getToken = null
+  const userId = 'single_user'
+
   const [activeView, setActiveView] = useState('request-builder')
   const [activeProjectId, setActiveProjectId] = useState(null)
   const [activeProjectName, setActiveProjectName] = useState('')
