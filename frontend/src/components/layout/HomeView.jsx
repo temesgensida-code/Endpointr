@@ -54,10 +54,10 @@ export default function HomeView({ getToken, onSelectProject }) {
           src="/favicon.svg"
           alt="Endpointr Logo"
           style={{
-            width: 56, height: 56,
+            width: 140, height: 140,
             objectFit: 'contain',
             margin: '0 auto var(--s5)',
-            filter: 'drop-shadow(0 0 12px rgba(var(--accent-rgb), 0.3))',
+            filter: 'drop-shadow(0 0 20px rgba(183, 155, 155, 0.25))',
           }}
         />
         <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.5px', color: 'var(--tx-primary)', marginBottom: 10 }}>
