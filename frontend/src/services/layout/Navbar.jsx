@@ -1,6 +1,6 @@
-import { UserButton } from '@clerk/react'
-
+/* Single user Navbar */
 const VIEW_TITLES = {
+
   'request-builder': { title: 'Request Builder', sub: 'Send HTTP requests and inspect responses' },
   'projects':        { title: 'Projects',        sub: 'Manage workspaces and team members' },
   'collections':     { title: 'Collections',     sub: 'Organize and run saved API requests' },
@@ -55,14 +55,8 @@ export default function Navbar({ activeView, projectName }) {
           </svg>
           Docs
         </a>
-        <div style={{ width: 1, height: 18, background: 'var(--border)' }} />
-        <UserButton
-          appearance={{
-            elements: {
-              avatarBox: { width: 28, height: 28 },
-            },
-          }}
-        />
+        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--tx-secondary)' }}>Single User</div>
+
       </div>
     </header>
   )
