@@ -572,6 +572,10 @@ func (e *PerfExecutor) runRateLimit(p PerfRunPayload) (map[string]any, string) {
 
 	hc := e.hc
 
+	var mu sync.Mutex
+	samples := make([]perfSample, 0, 1000)
+	testStart := time.Now()
+
 	var breakingPointDetected bool
 	var breakingRPS int
 
@@ -664,25 +668,40 @@ func (e *PerfExecutor) runRateLimit(p PerfRunPayload) (map[string]any, string) {
 					} else {
 						req, err = http.NewRequestWithContext(ctx, method, targetURL, nil)
 					}
+					
+					startReq := time.Now()
+					var lat int64
+					isErr := false
+					is429 := false
+
 					if err == nil {
 						for k, v := range headersMap {
 							req.Header.Set(k, v)
 						}
 						resp, err := hc.Do(req)
+						lat = time.Since(startReq).Milliseconds()
 
 						if err != nil {
+							isErr = true
 							atomic.AddInt64(&errorCount, 1)
 						} else {
 							if resp.StatusCode == 429 {
+								is429 = true
 								atomic.AddInt64(&rateLimitedCount, 1)
 							} else if resp.StatusCode >= 400 {
+								isErr = true
 								atomic.AddInt64(&errorCount, 1)
 							}
 							resp.Body.Close()
 						}
 					} else {
+						isErr = true
 						atomic.AddInt64(&errorCount, 1)
 					}
+
+					mu.Lock()
+					samples = append(samples, perfSample{latencyMs: lat, err: isErr || is429})
+					mu.Unlock()
 				}()
 			}
 		}
@@ -697,6 +716,7 @@ func (e *PerfExecutor) runRateLimit(p PerfRunPayload) (map[string]any, string) {
 		second := 0
 		var lastRL int64
 		var lastTotal int64
+		var lastCount int
 
 		for {
 			select {
@@ -715,6 +735,30 @@ func (e *PerfExecutor) runRateLimit(p PerfRunPayload) (map[string]any, string) {
 
 				lastRL = rlCount
 				lastTotal = totCount
+
+				mu.Lock()
+				snap := make([]perfSample, len(samples))
+				copy(snap, samples)
+				mu.Unlock()
+
+				newCount := len(snap) - lastCount
+				var p95 float64
+				if newCount > 0 {
+					window := snap[max(0, len(snap)-newCount):]
+					lats := make([]int64, 0, len(window))
+					for _, s := range window {
+						lats = append(lats, s.latencyMs)
+					}
+					slices.Sort(lats)
+					idx := int(math.Ceil(0.95*float64(len(lats)))) - 1
+					if idx < 0 {
+						idx = 0
+					}
+					if len(lats) > 0 {
+						p95 = float64(lats[idx])
+					}
+				}
+				lastCount = len(snap)
 
 				if recentTotal == 0 {
 					continue
@@ -740,7 +784,7 @@ func (e *PerfExecutor) runRateLimit(p PerfRunPayload) (map[string]any, string) {
 					"endpoint":       targetURL,
 					"method":         method,
 					"status_code":    200,
-					"latency_ms":     0,
+					"latency_ms":     p95,
 					"error":          recentRL > 0,
 					"rps":            recentTotal,
 					"active_rps":     curRPS,
@@ -758,18 +802,28 @@ func (e *PerfExecutor) runRateLimit(p PerfRunPayload) (map[string]any, string) {
 
 	total := atomic.LoadInt64(&totalRequests)
 	rateLimited := atomic.LoadInt64(&rateLimitedCount)
+	errs := atomic.LoadInt64(&errorCount)
 
 	rateLimitPct := 0.0
 	if total > 0 {
 		rateLimitPct = float64(rateLimited) / float64(total) * 100
 	}
 
-	summary := map[string]any{
-		"total_requests":      total,
-		"rate_limited_count":  rateLimited,
-		"rate_limited_pct":    rateLimitPct,
-		"rate_limit_detected": breakingPointDetected,
+	actualDurationSec := int(time.Since(testStart).Seconds())
+	if actualDurationSec == 0 {
+		actualDurationSec = 1
 	}
+
+	mu.Lock()
+	finalSamples := make([]perfSample, len(samples))
+	copy(finalSamples, samples)
+	mu.Unlock()
+
+	summary := buildSummary(finalSamples, int(total), int(errs)+int(rateLimited), actualDurationSec)
+
+	summary["rate_limited_count"] = rateLimited
+	summary["rate_limited_pct"] = rateLimitPct
+	summary["rate_limit_detected"] = breakingPointDetected
 
 	if breakingPointDetected {
 		summary["breaking_rps"] = breakingRPS
