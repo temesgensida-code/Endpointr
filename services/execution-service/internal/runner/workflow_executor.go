@@ -42,12 +42,14 @@ func NewWorkflowExecutor(nc *natsgo.Conn, log *zap.Logger, controlPlaneURL strin
 }
 
 type nodeResult struct {
-	NodeID     string         `json:"node_id"`
-	Status     string         `json:"status"` // passed | failed | skipped
-	StatusCode int            `json:"status_code,omitempty"`
-	DurationMs int64          `json:"duration_ms"`
-	Assertions []assertResult `json:"assertions"`
-	Error      string         `json:"error,omitempty"`
+	NodeID          string            `json:"node_id"`
+	Status          string            `json:"status"` // passed | failed | skipped
+	StatusCode      int               `json:"status_code,omitempty"`
+	DurationMs      int64             `json:"duration_ms"`
+	Assertions      []assertResult    `json:"assertions"`
+	ExtractedVars   map[string]string `json:"extracted_vars,omitempty"`
+	ResponsePreview string            `json:"response_preview,omitempty"`
+	Error           string            `json:"error,omitempty"`
 }
 
 type assertResult struct {
@@ -94,6 +96,7 @@ func (e *WorkflowExecutor) Execute(p WorkflowRunPayload) {
 
 	var (
 		mu          sync.Mutex
+		varCtx      = make(map[string]string)
 		nodeResults = make([]nodeResult, 0, totalNodes)
 		passed      int32
 		failed      int32
@@ -120,10 +123,20 @@ func (e *WorkflowExecutor) Execute(p WorkflowRunPayload) {
 			return
 		}
 
-		result := e.executeNode(ctx, n)
+		mu.Lock()
+		ctxVars := make(map[string]string, len(varCtx))
+		for k, v := range varCtx {
+			ctxVars[k] = v
+		}
+		mu.Unlock()
+
+		result := e.executeNode(ctx, n, ctxVars)
 
 		mu.Lock()
 		nodeResults = append(nodeResults, result)
+		for k, v := range result.ExtractedVars {
+			varCtx[k] = v
+		}
 		mu.Unlock()
 
 		if result.Status == "passed" {
@@ -259,34 +272,104 @@ func parseDAG(definition map[string]any) (map[string]node, map[string]int, map[s
 	return nodeMap, inDegree, graph
 }
 
-func (e *WorkflowExecutor) executeNode(ctx context.Context, n node) nodeResult {
+func interpolateVars(input string, varCtx map[string]string) string {
+	for k, v := range varCtx {
+		pattern := "{{" + k + "}}"
+		input = bytes.NewBufferString(input).String() // simple replace
+		input = string(bytes.ReplaceAll([]byte(input), []byte(pattern), []byte(v)))
+	}
+	return input
+}
+
+func (e *WorkflowExecutor) executeNode(ctx context.Context, n node, varCtx map[string]string) nodeResult {
 	switch n.Type {
 	case "request":
-		return e.executeRequestNode(ctx, n)
+		return e.executeRequestNode(ctx, n, varCtx)
 	case "delay":
 		ms, _ := n.Data["delay_ms"].(float64)
 		time.Sleep(time.Duration(ms) * time.Millisecond)
 		return nodeResult{NodeID: n.ID, Status: "passed", DurationMs: int64(ms)}
+	case "condition":
+		varName, _ := n.Data["var_name"].(string)
+		expectedVal, _ := n.Data["expected_value"].(string)
+		val, exists := varCtx[varName]
+		status := "failed"
+		if exists && (expectedVal == "" || val == expectedVal) {
+			status = "passed"
+		}
+		return nodeResult{
+			NodeID: n.ID,
+			Status: status,
+			Assertions: []assertResult{{
+				Type:   "condition",
+				Passed: status == "passed",
+				Detail: fmt.Sprintf("var '%s' = '%s' (expected '%s')", varName, val, expectedVal),
+			}},
+		}
 	default:
 		return nodeResult{NodeID: n.ID, Status: "skipped"}
 	}
 }
 
-func (e *WorkflowExecutor) executeRequestNode(ctx context.Context, n node) nodeResult {
-	url, _ := n.Data["url"].(string)
+func getJSONPath(data any, path string) string {
+	if path == "" || data == nil {
+		return ""
+	}
+	m, ok := data.(map[string]any)
+	if !ok {
+		return ""
+	}
+	val, exists := m[path]
+	if !exists {
+		return ""
+	}
+	return fmt.Sprintf("%v", val)
+}
+
+func (e *WorkflowExecutor) executeRequestNode(ctx context.Context, n node, varCtx map[string]string) nodeResult {
+	rawURL, _ := n.Data["url"].(string)
+	rawURL = interpolateVars(rawURL, varCtx)
 	method, _ := n.Data["method"].(string)
 	if method == "" {
 		method = "GET"
 	}
 	expectedStatus, _ := n.Data["expected_status"].(float64)
 
-	if url == "" {
+	if rawURL == "" {
 		return nodeResult{NodeID: n.ID, Status: "failed", Error: "no URL configured"}
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, url, nil)
+	var reqBody *bytes.Buffer
+	if bodyStr, ok := n.Data["body"].(string); ok && bodyStr != "" {
+		interpolatedBody := interpolateVars(bodyStr, varCtx)
+		reqBody = bytes.NewBufferString(interpolatedBody)
+	} else {
+		reqBody = bytes.NewBuffer(nil)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, rawURL, reqBody)
 	if err != nil {
 		return nodeResult{NodeID: n.ID, Status: "failed", Error: fmt.Sprintf("bad request: %s", err)}
+	}
+
+	// Apply headers with interpolation
+	if headersMap, ok := n.Data["headers"].(map[string]any); ok {
+		for hK, hV := range headersMap {
+			valStr, ok := hV.(string)
+			if ok {
+				req.Header.Set(hK, interpolateVars(valStr, varCtx))
+			}
+		}
+	} else if headersSlice, ok := n.Data["headers"].([]any); ok {
+		for _, item := range headersSlice {
+			if hMap, ok := item.(map[string]any); ok {
+				k, _ := hMap["key"].(string)
+				v, _ := hMap["value"].(string)
+				if k != "" {
+					req.Header.Set(k, interpolateVars(v, varCtx))
+				}
+			}
+		}
 	}
 
 	start := time.Now()
@@ -297,6 +380,33 @@ func (e *WorkflowExecutor) executeRequestNode(ctx context.Context, n node) nodeR
 		return nodeResult{NodeID: n.ID, Status: "failed", DurationMs: durationMs, Error: err.Error()}
 	}
 	defer resp.Body.Close()
+
+	buf := new(bytes.Buffer)
+	_, _ = buf.ReadFrom(resp.Body)
+	bodyBytes := buf.Bytes()
+	previewStr := string(bodyBytes)
+	if len(previewStr) > 500 {
+		previewStr = previewStr[:500] + "..."
+	}
+
+	var jsonBody map[string]any
+	_ = json.Unmarshal(bodyBytes, &jsonBody)
+
+	extractedVars := make(map[string]string)
+	if extractors, ok := n.Data["extractors"].([]any); ok {
+		for _, item := range extractors {
+			if exMap, ok := item.(map[string]any); ok {
+				jsonPath, _ := exMap["json_path"].(string)
+				varName, _ := exMap["var_name"].(string)
+				if jsonPath != "" && varName != "" {
+					val := getJSONPath(jsonBody, jsonPath)
+					if val != "" {
+						extractedVars[varName] = val
+					}
+				}
+			}
+		}
+	}
 
 	assertions := []assertResult{}
 	allPassed := true
@@ -313,16 +423,52 @@ func (e *WorkflowExecutor) executeRequestNode(ctx context.Context, n node) nodeR
 		})
 	}
 
+	if assertionList, ok := n.Data["assertions"].([]any); ok {
+		for _, item := range assertionList {
+			if aMap, ok := item.(map[string]any); ok {
+				aType, _ := aMap["type"].(string)
+				switch aType {
+				case "max_latency":
+					maxMs, _ := aMap["max_ms"].(float64)
+					passed := float64(durationMs) <= maxMs
+					if !passed {
+						allPassed = false
+					}
+					assertions = append(assertions, assertResult{
+						Type:   "max_latency",
+						Passed: passed,
+						Detail: fmt.Sprintf("max %dms got %dms", int(maxMs), durationMs),
+					})
+				case "json_body":
+					path, _ := aMap["path"].(string)
+					exp, _ := aMap["expected"].(string)
+					actual := getJSONPath(jsonBody, path)
+					passed := actual == exp
+					if !passed {
+						allPassed = false
+					}
+					assertions = append(assertions, assertResult{
+						Type:   "json_body",
+						Passed: passed,
+						Detail: fmt.Sprintf("path '%s' expected '%s' got '%s'", path, exp, actual),
+					})
+				}
+			}
+		}
+	}
+
 	status := "passed"
 	if !allPassed {
 		status = "failed"
 	}
 
 	return nodeResult{
-		NodeID:     n.ID,
-		Status:     status,
-		StatusCode: resp.StatusCode,
-		DurationMs: durationMs,
-		Assertions: assertions,
+		NodeID:          n.ID,
+		Status:          status,
+		StatusCode:      resp.StatusCode,
+		DurationMs:      durationMs,
+		Assertions:      assertions,
+		ExtractedVars:   extractedVars,
+		ResponsePreview: previewStr,
 	}
 }
