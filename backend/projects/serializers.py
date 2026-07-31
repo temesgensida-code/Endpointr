@@ -27,16 +27,8 @@ class ProjectSerializer(serializers.ModelSerializer):
         return obj.members.count()
 
     def get_current_user_role(self, obj):
-        request = self.context.get("request")
-        if not request:
-            return None
-        clerk_id = getattr(request.user, "clerk_sub", None)
-        if not clerk_id:
-            return None
-        try:
-            return obj.members.get(clerk_user_id=clerk_id).role
-        except ProjectMember.DoesNotExist:
-            return None
+        return "owner"
+
 
 
 class ApiKeySerializer(serializers.ModelSerializer):
