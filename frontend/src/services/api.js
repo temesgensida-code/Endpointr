@@ -1,10 +1,5 @@
 /**
- * api.js — Base API client for Endpointr control-plane.
- *
- * All requests include the Clerk Bearer token.
- * Usage: import { apiClient } from '@/services/api'
- *        const client = apiClient(getToken)
- *        const projects = await client.get('/projects/')
+ * api.js — Base API client for Endpointr control-plane (Single User).
  */
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
@@ -18,18 +13,9 @@ class ApiError extends Error {
   }
 }
 
-async function request(getToken, method, path, body = undefined) {
-  let token = null
-  try {
-    if (typeof getToken === 'function') {
-      token = await getToken()
-    }
-  } catch {}
-
+async function request(method, path, body = undefined) {
   const headers = {
     'Content-Type': 'application/json',
-    Authorization: `Bearer ${token || 'dev-token'}`,
-    'X-Dev-User-Id': 'dev-user',
   }
 
   const options = { method, headers }
@@ -56,17 +42,17 @@ async function request(getToken, method, path, body = undefined) {
 }
 
 /**
- * Creates a bound API client for a given Clerk getToken function.
- * @param {function} getToken — Clerk's useAuth().getToken
+ * Returns the single-user API client.
  */
-export function apiClient(getToken) {
+export function apiClient(_getToken = null) {
   return {
-    get: (path) => request(getToken, 'GET', path),
-    post: (path, body) => request(getToken, 'POST', path, body),
-    patch: (path, body) => request(getToken, 'PATCH', path, body),
-    put: (path, body) => request(getToken, 'PUT', path, body),
-    delete: (path) => request(getToken, 'DELETE', path),
+    get: (path) => request('GET', path),
+    post: (path, body) => request('POST', path, body),
+    patch: (path, body) => request('PATCH', path, body),
+    put: (path, body) => request('PUT', path, body),
+    delete: (path) => request('DELETE', path),
   }
 }
 
 export { ApiError }
+
