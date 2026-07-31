@@ -73,13 +73,13 @@ export default function Navbar({
     }}>
 
       {/* ── Logo ── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
         <img
           src="/favicon.svg"
           alt="Endpointr Logo"
-          style={{ width: 28, height: 28, objectFit: 'contain' }}
+          style={{ width: 70, height: 42, objectFit: 'contain' }}
         />
-        <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--tx-primary)', letterSpacing: '-0.4px' }}>
+        <span style={{ fontWeight: 700, fontSize: 16, color: 'var(--tx-primary)', letterSpacing: '-0.4px' }}>
           endpointr
         </span>
       </div>
