@@ -9,7 +9,7 @@ export function useJWTAnalyzer(getToken) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
-  const svc = securityService(getToken)
+  const svc = securityService()
 
   const analyze = useCallback(async (token, useActiveSession = false) => {
     setLoading(true)
@@ -24,7 +24,7 @@ export function useJWTAnalyzer(getToken) {
     } finally {
       setLoading(false)
     }
-  }, [getToken])
+  }, [])
 
   const inspectActiveSession = useCallback(async () => {
     return analyze('', true)
@@ -37,3 +37,4 @@ export function useJWTAnalyzer(getToken) {
 
   return { analyze, inspectActiveSession, result, loading, error, clear }
 }
+
