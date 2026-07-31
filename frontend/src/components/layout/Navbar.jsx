@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { UserButton } from '@clerk/react'
 import { projectsService } from '../../services/projectsService'
+
 
 export default function Navbar({
   getToken,
@@ -291,9 +291,28 @@ export default function Navbar({
 
         <div style={{ width: 1, height: 18, background: 'var(--border-strong)' }} />
 
-        <UserButton appearance={{ elements: { avatarBox: { width: 28, height: 28 } } }} />
+        <div
+          title="Single User Mode"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '4px 8px', borderRadius: 12,
+            background: 'var(--bg-subtle)', border: '1px solid var(--border-strong)',
+            fontSize: 11, fontWeight: 600, color: 'var(--tx-secondary)',
+          }}
+        >
+          <div style={{
+            width: 18, height: 18, borderRadius: '50%',
+            background: 'var(--accent-dim)', color: 'var(--accent-bright)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 10, fontWeight: 700,
+          }}>
+            U
+          </div>
+          Single User
+        </div>
       </div>
     </header>
+
   )
 }
 
