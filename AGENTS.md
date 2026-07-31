@@ -62,8 +62,8 @@ Endpointr/
 |---|---|---|
 | Backend framework | **Django 6 + Daphne** | ASGI; served via Daphne, not gunicorn |
 | Async / WebSockets | **Django Channels** | InMemory layer (dev), Redis layer (prod) |
-| Auth | **Clerk** | JWT validated via JWKS; no Django User rows |
-| REST API | **Django REST Framework** | `ClerkJWTAuthentication` is the default |
+| Auth | **Single-User** | Bypasses external auth; default identity `single_user` |
+| REST API | **Django REST Framework** | `SingleUserAuthentication` is the default |
 | Message bus | **NATS 2.10** | JetStream enabled |
 | Primary DB | **PostgreSQL 16** (SQLite in dev) | Via `DATABASE_URL` |
 | Metrics DB | **TimescaleDB** (pg16) | Via `TIMESCALE_DSN`; only metrics-service writes here |
@@ -105,11 +105,9 @@ Key NATS subjects:
 
 ## 5. Authentication Rules
 
-- **All DRF views** must use `permission_classes = [IsAuthenticated]` (wired to `ClerkJWTAuthentication`).
-- `request.user` is a `_ClerkUser` — it has `.clerk_sub` (string) but **no `.pk` / no Django User row**.
-- Filter all querysets by `owner_clerk_id=request.user.clerk_sub` or project membership.
-- **WebSocket auth**: Clerk token passed as `?token=...` query param; validated in `realtime/consumers.py::_authenticate()`.
-- **Dev bypass**: If `CLERK_JWT_ISSUER` is empty and `DEBUG=True`, pass `X-Dev-User-Id` header to authenticate as any user.
+- **Single-User Architecture**: Endpointr runs in single-user mode. All requests authenticate as `single_user`.
+- `request.user` is a `_ClerkUser` object with `clerk_sub="single_user"`, `is_superuser=True`.
+- **WebSocket auth**: Connections are open without requiring tokens.
 
 ---
 
