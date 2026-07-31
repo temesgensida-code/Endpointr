@@ -6,12 +6,6 @@ const ALTERNATIVES = [
     icon: IconSend,
   },
   {
-    id: 'collections',
-    label: 'Collections',
-    sub: 'Saved request sets',
-    icon: IconStack,
-  },
-  {
     id: 'workflows',
     label: 'Workflows',
     sub: 'Multi-step sequences',
@@ -28,12 +22,6 @@ const ALTERNATIVES = [
     label: 'Monitoring',
     sub: 'Uptime & incidents',
     icon: IconActivity,
-  },
-  {
-    id: 'contracts',
-    label: 'Contracts',
-    sub: 'Schema & diffs',
-    icon: IconShield,
   },
   {
     id: 'security',
@@ -53,7 +41,7 @@ export default function TestAlternativesBar({ activeView, onNavigate }) {
       display: 'flex',
       alignItems: 'center',
       padding: '0 var(--s5)',
-      gap: 'var(--s2)',
+      gap: 'var(--s3)',
       overflowX: 'auto',
     }}>
       {ALTERNATIVES.map(({ id, label, sub, icon: Icon }) => {
@@ -64,18 +52,20 @@ export default function TestAlternativesBar({ activeView, onNavigate }) {
             id={`alt-${id}`}
             onClick={() => onNavigate(id)}
             style={{
+              flex: 1,
               display: 'flex',
               alignItems: 'center',
+              justifyContent: 'center',
               gap: 8,
-              padding: '7px 14px',
+              padding: '7px 12px',
               border: `1px solid ${isActive ? 'var(--accent)' : 'transparent'}`,
               borderRadius: 'var(--r3)',
               background: isActive ? 'var(--accent-dim)' : 'transparent',
               color: isActive ? 'var(--accent-bright)' : 'var(--tx-muted)',
               cursor: 'pointer',
               transition: 'all var(--t-fast)',
-              flexShrink: 0,
               position: 'relative',
+              minWidth: 0,
             }}
             onMouseEnter={e => {
               if (!isActive) {
@@ -93,9 +83,9 @@ export default function TestAlternativesBar({ activeView, onNavigate }) {
             }}
           >
             <Icon size={14} />
-            <div style={{ textAlign: 'left' }}>
-              <div style={{ fontSize: 12, fontWeight: 500, lineHeight: 1.2 }}>{label}</div>
-              <div style={{ fontSize: 10, color: isActive ? 'var(--accent)' : 'var(--tx-muted)', lineHeight: 1.2, marginTop: 1 }}>{sub}</div>
+            <div style={{ textAlign: 'left', overflow: 'hidden' }}>
+              <div style={{ fontSize: 12, fontWeight: 500, lineHeight: 1.2, whiteSpace: 'nowrap' }}>{label}</div>
+              <div style={{ fontSize: 10, color: isActive ? 'var(--accent)' : 'var(--tx-muted)', lineHeight: 1.2, marginTop: 1, whiteSpace: 'nowrap' }}>{sub}</div>
             </div>
             {isActive && (
               <div style={{
@@ -119,9 +109,6 @@ export default function TestAlternativesBar({ activeView, onNavigate }) {
 /* ── Inline SVG icons ── */
 function IconSend({ size = 14 }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-}
-function IconStack({ size = 14 }) {
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
 }
 function IconFlow({ size = 14 }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>

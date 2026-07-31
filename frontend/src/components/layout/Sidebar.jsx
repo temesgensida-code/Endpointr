@@ -18,7 +18,6 @@ const NAV_ITEMS = [
     group: 'OBSERVABILITY',
     items: [
       { id: 'monitoring', label: 'Monitoring', icon: IconActivity },
-      { id: 'contracts',  label: 'Contracts',  icon: IconShield },
     ],
   },
   {

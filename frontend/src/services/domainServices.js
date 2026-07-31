@@ -102,7 +102,12 @@ export function securityService(getToken) {
   const api = apiClient(getToken)
 
   return {
-    analyzeJWT: (token) => api.post('/security/jwt/analyze/', { token }),
+    analyzeJWT: (token, useActiveSession = false, projectId = null) => {
+      const endpoint = projectId
+        ? `/api/projects/${projectId}/security/jwt/analyze/`
+        : `/security/jwt/analyze/`
+      return api.post(endpoint, { token, use_active_session: useActiveSession })
+    },
   }
 }
 

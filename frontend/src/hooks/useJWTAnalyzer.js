@@ -1,8 +1,5 @@
 /**
  * useJWTAnalyzer.js — JWT decode + security analysis hook.
- *
- * Usage:
- *   const { analyze, result, loading, error, clear } = useJWTAnalyzer(getToken)
  */
 import { useState, useCallback } from 'react'
 import { securityService } from '../services/domainServices'
@@ -14,25 +11,29 @@ export function useJWTAnalyzer(getToken) {
 
   const svc = securityService(getToken)
 
-  const analyze = useCallback(async (token) => {
+  const analyze = useCallback(async (token, useActiveSession = false) => {
     setLoading(true)
     setError(null)
     try {
-      const data = await svc.analyzeJWT(token)
+      const data = await svc.analyzeJWT(token, useActiveSession)
       setResult(data)
       return data
     } catch (err) {
-      setError(err.message)
+      setError(err.message || 'Failed to analyze token.')
       setResult(null)
     } finally {
       setLoading(false)
     }
   }, [getToken])
 
+  const inspectActiveSession = useCallback(async () => {
+    return analyze('', true)
+  }, [analyze])
+
   const clear = useCallback(() => {
     setResult(null)
     setError(null)
   }, [])
 
-  return { analyze, result, loading, error, clear }
+  return { analyze, inspectActiveSession, result, loading, error, clear }
 }
