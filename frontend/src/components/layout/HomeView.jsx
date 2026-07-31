@@ -50,16 +50,16 @@ export default function HomeView({ getToken, onSelectProject }) {
     }}>
       {/* ── Hero ── */}
       <div style={{ textAlign: 'center', maxWidth: 560, marginBottom: 'var(--s10)' }}>
-        <div style={{
-          width: 56, height: 56, borderRadius: 16,
-          background: 'linear-gradient(135deg, var(--accent), var(--bg-overlay))',
-          border: '1px solid var(--border-strong)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          margin: '0 auto var(--s5)',
-          boxShadow: 'var(--shadow-glow)',
-        }}>
-          <LogoIcon size={26} />
-        </div>
+        <img
+          src="/favicon.svg"
+          alt="Endpointr Logo"
+          style={{
+            width: 56, height: 56,
+            objectFit: 'contain',
+            margin: '0 auto var(--s5)',
+            filter: 'drop-shadow(0 0 12px rgba(var(--accent-rgb), 0.3))',
+          }}
+        />
         <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.5px', color: 'var(--tx-primary)', marginBottom: 10 }}>
           Your API Testing Workspace
         </h1>
