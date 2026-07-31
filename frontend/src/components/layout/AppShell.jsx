@@ -1,5 +1,4 @@
 import { useState, useCallback } from 'react'
-import { useAuth } from '@clerk/react'
 import Navbar from './Navbar'
 import TestAlternativesBar from './TestAlternativesBar'
 import HomeView from './HomeView'
@@ -14,7 +13,9 @@ import SecurityView from '../security/SecurityView'
 import AiChatDrawer from '../ai/AiChatDrawer'
 
 export default function AppShell() {
-  const { getToken, userId } = useAuth()
+  const userId = 'single_user'
+  const getToken = null
+
   const [activeView, setActiveView] = useState('request-builder')
   const [activeProjectId, setActiveProjectId] = useState(null)
   const [activeProjectName, setActiveProjectName] = useState('')
