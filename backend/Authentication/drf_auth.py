@@ -14,64 +14,35 @@ from django.conf import settings
 
 
 class _ClerkUser:
-    """Lightweight user object attached to request.user for DRF permission checks."""
+    """Lightweight single-user object attached to request.user."""
 
-    def __init__(self, clerk_sub, email="", is_superuser=False):
+    def __init__(self, clerk_sub="single_user", email="user@endpointr.local", is_superuser=True):
         self.clerk_sub = clerk_sub
         self.username = clerk_sub
         self.email = email
         self.is_superuser = is_superuser
+        self.is_staff = True
         self.is_authenticated = True
         self.is_active = True
-        self.pk = None  # no Django User row — Clerk is the identity source
+        self.pk = None
 
     def __str__(self):
         return self.clerk_sub
 
 
-class ClerkJWTAuthentication(BaseAuthentication):
+class SingleUserAuthentication(BaseAuthentication):
     """
-    Reads the Authorization: Bearer <token> header, validates via Clerk JWKS,
-    and returns a (_ClerkUser, token) tuple.
-
-    Dev fallback: if CLERK_JWT_ISSUER is unset and DEBUG=True, any request
-    with a `X-Dev-User-Id` header is accepted so you can test without Clerk.
+    Single-user authentication backend for DRF.
+    Automatically authenticates all incoming requests as the default single user.
     """
 
     def authenticate(self, request):
-        auth = request.headers.get("Authorization", "")
-        if not auth.lower().startswith("bearer "):
-            return None  # Not our scheme — let other authenticators try
-
-        token = auth[7:].strip()
-        if not token:
-            return None
-
-        # ── Dev bypass check ──────────────────────────────────────────────────
-        clerk_issuer = getattr(settings, "CLERK_JWT_ISSUER", "")
-        has_dev_header = bool(request.headers.get("X-Dev-User-Id"))
-        is_dev_token = token.startswith("dev-")
-        is_issuer_unconfigured = not clerk_issuer or "your-clerk" in clerk_issuer
-
-        if settings.DEBUG and (is_issuer_unconfigured or is_dev_token or has_dev_header):
-            dev_user_id = request.headers.get("X-Dev-User-Id") or (token if is_dev_token else "dev-user")
-            return (_ClerkUser(dev_user_id), token)
-
-        # ── Production: validate with Clerk JWKS ──────────────────────────────
-        try:
-            from Authentication.decorators import validate_clerk_token
-            claims = validate_clerk_token(token)
-            sub = claims.get("sub", "")
-            if not sub:
-                raise AuthenticationFailed("Token missing 'sub' claim.")
-
-            user = _ClerkUser(
-                clerk_sub=sub,
-                email=claims.get("email", ""),
-            )
-            return (user, token)
-        except Exception as exc:
-            raise AuthenticationFailed(f"Invalid Clerk token: {exc}")
+        return (_ClerkUser("single_user"), None)
 
     def authenticate_header(self, request):
         return "Bearer"
+
+
+# Alias for backward compatibility
+ClerkJWTAuthentication = SingleUserAuthentication
+
