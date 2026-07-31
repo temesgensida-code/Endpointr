@@ -47,10 +47,14 @@ class ClerkJWTAuthentication(BaseAuthentication):
         if not token:
             return None
 
-        # ── Dev bypass ────────────────────────────────────────────────────────
+        # ── Dev bypass check ──────────────────────────────────────────────────
         clerk_issuer = getattr(settings, "CLERK_JWT_ISSUER", "")
-        if settings.DEBUG and (not clerk_issuer or "your-clerk" in clerk_issuer or token.startswith("dev-") or request.headers.get("X-Dev-User-Id")):
-            dev_user_id = request.headers.get("X-Dev-User-Id", "dev-user")
+        has_dev_header = bool(request.headers.get("X-Dev-User-Id"))
+        is_dev_token = token.startswith("dev-")
+        is_issuer_unconfigured = not clerk_issuer or "your-clerk" in clerk_issuer
+
+        if settings.DEBUG and (is_issuer_unconfigured or is_dev_token or has_dev_header):
+            dev_user_id = request.headers.get("X-Dev-User-Id") or (token if is_dev_token else "dev-user")
             return (_ClerkUser(dev_user_id), token)
 
         # ── Production: validate with Clerk JWKS ──────────────────────────────
@@ -67,9 +71,6 @@ class ClerkJWTAuthentication(BaseAuthentication):
             )
             return (user, token)
         except Exception as exc:
-            if settings.DEBUG:
-                dev_user_id = request.headers.get("X-Dev-User-Id", "dev-user")
-                return (_ClerkUser(dev_user_id), token)
             raise AuthenticationFailed(f"Invalid Clerk token: {exc}")
 
     def authenticate_header(self, request):

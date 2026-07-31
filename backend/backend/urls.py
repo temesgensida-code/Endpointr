@@ -38,6 +38,9 @@ urlpatterns = [
     path('projects/<uuid:project_pk>/documentation/', include('documentation.urls')),
     path('projects/<uuid:project_pk>/audit/', include('audit.urls')),
 
+    path('security/', include('security_tools.urls')),
+    path('api/security/', include('security_tools.urls')),
+
     # Standard /api/ prefix routes
     path('api/projects/', include('projects.urls')),
     path('api/projects/<uuid:project_pk>/workflows/', include('workflows.urls')),

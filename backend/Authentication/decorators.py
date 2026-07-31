@@ -14,6 +14,22 @@ def _extract_bearer_token(request):
 	return parts[1].strip()
 
 
+_JWK_CLIENTS = {}
+
+
+def _get_jwk_client(jwks_url: str) -> PyJWKClient:
+	"""Retrieve or initialize a cached PyJWKClient instance for the given JWKS URL."""
+	if jwks_url not in _JWK_CLIENTS:
+		_JWK_CLIENTS[jwks_url] = PyJWKClient(
+			jwks_url,
+			cache_keys=True,
+			max_cached_keys=16,
+			cache_jwk_set=True,
+			lifespan=300,
+		)
+	return _JWK_CLIENTS[jwks_url]
+
+
 def validate_clerk_token(token):
 	issuer = settings.CLERK_JWT_ISSUER
 	if not issuer:
@@ -22,15 +38,22 @@ def validate_clerk_token(token):
 	jwks_url = settings.CLERK_JWKS_URL or f"{issuer.rstrip('/')}/.well-known/jwks.json"
 	jwt_audience = settings.CLERK_JWT_AUDIENCE
 
-	jwk_client = PyJWKClient(jwks_url)
+	jwk_client = _get_jwk_client(jwks_url)
 	signing_key = jwk_client.get_signing_key_from_jwt(token)
 
 	decode_kwargs = {
 		"jwt": token,
 		"key": signing_key.key,
-		"algorithms": ["RS256"],
+		"algorithms": ["RS256", "RS384", "RS512"],
 		"issuer": issuer,
-		"options": {"verify_aud": bool(jwt_audience)},
+		"leeway": 10,  # 10s leeway for clock skew
+		"options": {
+			"verify_aud": bool(jwt_audience),
+			"verify_signature": True,
+			"verify_exp": True,
+			"verify_nbf": True,
+			"verify_iat": True,
+		},
 	}
 	if jwt_audience:
 		decode_kwargs["audience"] = jwt_audience
