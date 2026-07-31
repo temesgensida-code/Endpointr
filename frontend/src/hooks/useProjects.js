@@ -12,7 +12,7 @@ export function useProjects(getToken) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  const svc = projectsService(getToken)
+  const svc = projectsService()
 
   const refetch = useCallback(async () => {
     setLoading(true)
@@ -25,28 +25,29 @@ export function useProjects(getToken) {
     } finally {
       setLoading(false)
     }
-  }, [getToken])
+  }, [])
 
   useEffect(() => {
-    if (getToken) refetch()
-  }, [getToken, refetch])
+    refetch()
+  }, [refetch])
 
   const createProject = useCallback(async ({ name, description = '' }) => {
     const project = await svc.create({ name, description })
     setProjects((prev) => [project, ...prev])
     return project
-  }, [getToken])
+  }, [])
 
   const updateProject = useCallback(async (projectId, data) => {
     const updated = await svc.update(projectId, data)
     setProjects((prev) => prev.map((p) => (p.id === projectId ? updated : p)))
     return updated
-  }, [getToken])
+  }, [])
 
   const deleteProject = useCallback(async (projectId) => {
     await svc.delete(projectId)
     setProjects((prev) => prev.filter((p) => p.id !== projectId))
-  }, [getToken])
+  }, [])
 
   return { projects, loading, error, refetch, createProject, updateProject, deleteProject }
 }
+
