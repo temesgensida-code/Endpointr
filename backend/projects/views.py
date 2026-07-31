@@ -1,27 +1,25 @@
 from django.db import transaction
 from rest_framework import status
-from rest_framework.exceptions import NotFound, PermissionDenied
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import NotFound
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import Project, ProjectMember, ApiKey
-from .permissions import IsProjectMember, IsProjectEditor, IsProjectAdmin, IsProjectOwner
 from .serializers import ProjectSerializer, ProjectMemberSerializer, ApiKeySerializer
 
 
 def _clerk_id(request):
-    return getattr(request.user, "clerk_sub", None) or getattr(request.user, "username", None)
+    return "single_user"
 
 
 # ── Projects ──────────────────────────────────────────────────────────────────
 
 class ProjectListCreateView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def get(self, request):
-        clerk_id = _clerk_id(request)
-        projects = Project.objects.filter(members__clerk_user_id=clerk_id).distinct()
+        projects = Project.objects.all()
         return Response(ProjectSerializer(projects, many=True, context={"request": request}).data)
 
     def post(self, request):
@@ -31,14 +29,14 @@ class ProjectListCreateView(APIView):
             return Response(ser.errors, status=400)
         with transaction.atomic():
             project = ser.save(owner_clerk_id=clerk_id)
-            ProjectMember.objects.create(
-                project=project, clerk_user_id=clerk_id, role="owner"
+            ProjectMember.objects.get_or_create(
+                project=project, clerk_user_id=clerk_id, defaults={"role": "owner"}
             )
         return Response(ProjectSerializer(project, context={"request": request}).data, status=201)
 
 
 class ProjectDetailView(APIView):
-    permission_classes = [IsAuthenticated, IsProjectMember]
+    permission_classes = [AllowAny]
 
     def _get(self, pk):
         try:
@@ -50,8 +48,6 @@ class ProjectDetailView(APIView):
         return Response(ProjectSerializer(self._get(pk), context={"request": request}).data)
 
     def patch(self, request, pk):
-        if not IsProjectAdmin().has_permission(request, self):
-            raise PermissionDenied("Admin role required.")
         project = self._get(pk)
         ser = ProjectSerializer(project, data=request.data, partial=True, context={"request": request})
         if not ser.is_valid():
@@ -60,8 +56,6 @@ class ProjectDetailView(APIView):
         return Response(ser.data)
 
     def delete(self, request, pk):
-        if not IsProjectOwner().has_permission(request, self):
-            raise PermissionDenied("Owner role required.")
         self._get(pk).delete()
         return Response(status=204)
 
@@ -69,15 +63,13 @@ class ProjectDetailView(APIView):
 # ── Members ───────────────────────────────────────────────────────────────────
 
 class ProjectMemberListView(APIView):
-    permission_classes = [IsAuthenticated, IsProjectMember]
+    permission_classes = [AllowAny]
 
     def get(self, request, project_pk):
         members = ProjectMember.objects.filter(project_id=project_pk)
         return Response(ProjectMemberSerializer(members, many=True).data)
 
     def post(self, request, project_pk):
-        if not IsProjectAdmin().has_permission(request, self):
-            raise PermissionDenied("Admin role required to add members.")
         data = {**request.data, "project": str(project_pk)}
         ser = ProjectMemberSerializer(data=data)
         if not ser.is_valid():
@@ -87,7 +79,7 @@ class ProjectMemberListView(APIView):
 
 
 class ProjectMemberDetailView(APIView):
-    permission_classes = [IsAuthenticated, IsProjectAdmin]
+    permission_classes = [AllowAny]
 
     def patch(self, request, project_pk, pk):
         try:
@@ -112,7 +104,7 @@ class ProjectMemberDetailView(APIView):
 # ── API Keys ──────────────────────────────────────────────────────────────────
 
 class ApiKeyListCreateView(APIView):
-    permission_classes = [IsAuthenticated, IsProjectAdmin]
+    permission_classes = [AllowAny]
 
     def get(self, request, project_pk):
         keys = ApiKey.objects.filter(project_id=project_pk)
@@ -131,7 +123,7 @@ class ApiKeyListCreateView(APIView):
 
 
 class ApiKeyDetailView(APIView):
-    permission_classes = [IsAuthenticated, IsProjectAdmin]
+    permission_classes = [AllowAny]
 
     def delete(self, request, project_pk, pk):
         try:
@@ -139,3 +131,4 @@ class ApiKeyDetailView(APIView):
         except ApiKey.DoesNotExist:
             raise NotFound("Key not found.")
         return Response(status=204)
+
