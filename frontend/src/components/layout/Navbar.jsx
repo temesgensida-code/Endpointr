@@ -74,17 +74,11 @@ export default function Navbar({
 
       {/* ── Logo ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-        <div style={{
-          width: 28, height: 28, borderRadius: 8,
-          background: 'linear-gradient(135deg, var(--accent), var(--bg-overlay))',
-          border: '1px solid var(--border-strong)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--tx-primary)" strokeWidth="2.5" strokeLinecap="round">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
-          </svg>
-        </div>
+        <img
+          src="/favicon.svg"
+          alt="Endpointr Logo"
+          style={{ width: 28, height: 28, objectFit: 'contain' }}
+        />
         <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--tx-primary)', letterSpacing: '-0.4px' }}>
           endpointr
         </span>
