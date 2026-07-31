@@ -2,6 +2,10 @@ import { useState, useEffect } from 'react'
 import { workflowsService } from '../../services/workflowsService'
 import { useRunLive } from '../../hooks/useRunLive'
 import LiveRunDrawer from '../execution/LiveRunDrawer'
+import WorkflowCanvas from './WorkflowCanvas'
+import NodeInspectorDrawer from './NodeInspectorDrawer'
+import WorkflowTemplatesModal from './WorkflowTemplatesModal'
+import NodeExecutionModal from './NodeExecutionModal'
 
 export default function WorkflowsView({ getToken, projectId, onNavigate }) {
   const svc = workflowsService(getToken)
@@ -10,17 +14,50 @@ export default function WorkflowsView({ getToken, projectId, onNavigate }) {
   const [showForm, setShowForm] = useState(false)
   const [newName, setNewName] = useState('')
   const [selected, setSelected] = useState(null)
+  const [definition, setDefinition] = useState({ nodes: [], edges: [] })
+  const [selectedNodeId, setSelectedNodeId] = useState(null)
+  const [saving, setSaving] = useState(false)
+
   const [runs, setRuns] = useState([])
   const [activeRunId, setActiveRunId] = useState(null)
   const [triggering, setTriggering] = useState(false)
+  const [showTemplatesModal, setShowTemplatesModal] = useState(false)
+  const [inspectResult, setInspectResult] = useState(null)
 
   const { events, status: liveStatus, connected } = useRunLive(getToken, activeRunId)
+  const [liveMetrics, setLiveMetrics] = useState({})
+  const [lastCompletedRun, setLastCompletedRun] = useState(null)
+
+  // Track live metrics over WS
+  useEffect(() => {
+    if (!events || events.length === 0) return
+    const lastEvent = events[events.length - 1]
+    if (lastEvent.type === 'metric' && lastEvent.node_id) {
+      setLiveMetrics(prev => ({
+        ...prev,
+        [lastEvent.node_id]: {
+          status: lastEvent.status,
+          duration_ms: lastEvent.duration_ms,
+        }
+      }))
+    } else if (lastEvent.type === 'completed') {
+      setLastCompletedRun(lastEvent)
+    }
+  }, [events])
 
   useEffect(() => { if (projectId) load() }, [projectId])
 
   async function load() {
     setLoading(true)
-    try { setWorkflows(await svc.list(projectId)) } catch {} finally { setLoading(false) }
+    try {
+      const list = await svc.list(projectId)
+      setWorkflows(list)
+      if (list.length > 0 && !selected) {
+        openWorkflow(list[0])
+      }
+    } catch {} finally {
+      setLoading(false)
+    }
   }
 
   async function createWorkflow() {
@@ -28,34 +65,113 @@ export default function WorkflowsView({ getToken, projectId, onNavigate }) {
     const wf = await svc.create(projectId, { name: newName.trim(), definition: { nodes: [], edges: [] } })
     setWorkflows(p => [wf, ...p])
     setNewName(''); setShowForm(false)
+    openWorkflow(wf)
   }
 
   async function openWorkflow(wf) {
     setSelected(wf)
+    setDefinition(wf.definition || { nodes: [], edges: [] })
+    setSelectedNodeId(null)
     setActiveRunId(null)
+    setLiveMetrics({})
+    setLastCompletedRun(null)
     try { setRuns(await svc.listRuns(projectId, wf.id)) } catch { setRuns([]) }
+  }
+
+  async function saveWorkflowDefinition(defToSave = definition) {
+    if (!selected) return
+    setSaving(true)
+    try {
+      const updated = await svc.update(projectId, selected.id, {
+        name: selected.name,
+        definition: defToSave,
+      })
+      setSelected(updated)
+      setWorkflows(p => p.map(w => w.id === updated.id ? updated : w))
+    } catch (e) {
+      alert('Failed to save workflow: ' + e.message)
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function deleteWorkflow(id) {
     if (!confirm('Delete this workflow?')) return
     await svc.delete(projectId, id)
-    setWorkflows(p => p.filter(w => w.id !== id))
-    if (selected?.id === id) setSelected(null)
+    const filtered = workflows.filter(w => w.id !== id)
+    setWorkflows(filtered)
+    if (selected?.id === id) {
+      if (filtered.length > 0) openWorkflow(filtered[0])
+      else setSelected(null)
+    }
   }
 
   async function triggerRun() {
     if (!selected) return
+    // Save definition before running
+    await saveWorkflowDefinition(definition)
     setTriggering(true)
+    setLiveMetrics({})
+    setLastCompletedRun(null)
     try {
       const { run_id } = await svc.triggerRun(projectId, selected.id)
       setActiveRunId(run_id)
       setRuns(p => [{ id: run_id, status: 'queued', created_at: new Date().toISOString() }, ...p])
-    } catch (e) { alert(e.message) }
-    finally { setTriggering(false) }
+    } catch (e) {
+      alert(e.message)
+    } finally {
+      setTriggering(false)
+    }
   }
 
-  const nodeCount = selected?.definition?.nodes?.length || 0
-  const edgeCount = selected?.definition?.edges?.length || 0
+  // Node controls
+  const handleAddNode = (type) => {
+    const id = `step_${Date.now().toString().slice(-4)}`
+    const count = (definition.nodes || []).length
+    const newNode = {
+      id,
+      type,
+      position: { x: 40 + (count % 3) * 240, y: 80 + Math.floor(count / 3) * 160 },
+      data: {
+        label: type === 'delay' ? 'Wait Delay' : type === 'condition' ? 'Condition Check' : `Step ${count + 1}`,
+        method: type === 'delay' ? 'WAIT' : type === 'condition' ? 'IF' : 'GET',
+        url: type === 'request' ? 'https://httpbin.org/get' : '',
+        expected_status: 200,
+        headers: [],
+        extractors: [],
+        assertions: [],
+      }
+    }
+    const updated = {
+      nodes: [...(definition.nodes || []), newNode],
+      edges: definition.edges || []
+    }
+    setDefinition(updated)
+    setSelectedNodeId(id)
+  }
+
+  const handleUpdateNode = (nodeId, updatedNode) => {
+    const nextNodes = definition.nodes.map(n => n.id === nodeId ? updatedNode : n)
+    setDefinition({ ...definition, nodes: nextNodes })
+  }
+
+  const handleDeleteNode = (nodeId) => {
+    const nextNodes = definition.nodes.filter(n => n.id !== nodeId)
+    const nextEdges = definition.edges.filter(e => e.source !== nodeId && e.target !== nodeId)
+    setDefinition({ nodes: nextNodes, edges: nextEdges })
+    if (selectedNodeId === nodeId) setSelectedNodeId(null)
+  }
+
+  const handleSelectTemplate = (template) => {
+    const updatedDef = {
+      nodes: template.nodes,
+      edges: template.edges,
+    }
+    setDefinition(updatedDef)
+    saveWorkflowDefinition(updatedDef)
+  }
+
+  const selectedNode = definition?.nodes?.find(n => n.id === selectedNodeId)
 
   if (!projectId) return (
     <div className="empty-state" style={{ height: '100%' }}>
@@ -68,129 +184,214 @@ export default function WorkflowsView({ getToken, projectId, onNavigate }) {
       )}
     </div>
   )
+
   if (loading) return <LoadingSkeleton />
 
   return (
-    <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
-      {/* List */}
-      <div style={{ width: 300, flexShrink: 0, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div style={{ padding: 'var(--s3) var(--s4)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 'var(--s2)' }}>
-          <h2 style={{ flex: 1, fontSize: 12 }}>Workflows</h2>
+    <div style={{ display: 'flex', height: '100%', overflow: 'hidden', background: 'var(--bg-app)' }}>
+      {/* Workflows Left Sidebar */}
+      <div style={{ width: 260, flexShrink: 0, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg-card)' }}>
+        <div style={{ padding: 'var(--s3) var(--s4)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <h2 style={{ fontSize: 13, fontWeight: 600 }}>Workflows</h2>
           <button className="btn btn-primary btn-xs" onClick={() => setShowForm(p => !p)}>+ New</button>
         </div>
+
         {showForm && (
           <div style={{ padding: 'var(--s3)', borderBottom: '1px solid var(--border)', background: 'var(--bg-overlay)', display: 'flex', gap: 6 }}>
-            <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Workflow name" autoFocus style={{ fontSize: 12 }} />
+            <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Workflow name" autoFocus style={{ fontSize: 11 }} />
             <button className="btn btn-ghost btn-xs" onClick={createWorkflow}>Add</button>
           </div>
         )}
-        <div style={{ flex: 1, overflow: 'auto', padding: 'var(--s2)' }}>
-          {workflows.length === 0 && <div className="empty-state" style={{ padding: 'var(--s6)' }}><FlowIcon /><p>No workflows yet</p></div>}
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--s2)' }}>
+          {workflows.length === 0 && (
+            <div className="empty-state" style={{ padding: 'var(--s6)' }}>
+              <FlowIcon />
+              <p style={{ fontSize: 11 }}>No workflows created yet</p>
+            </div>
+          )}
           {workflows.map(wf => (
-            <div key={wf.id} className={`card card-hover ${selected?.id === wf.id ? 'card-active' : ''}`}
-              style={{ padding: 10, marginBottom: 6, cursor: 'pointer' }} onClick={() => openWorkflow(wf)}>
+            <div
+              key={wf.id}
+              className={`card card-hover ${selected?.id === wf.id ? 'card-active' : ''}`}
+              style={{ padding: '8px 10px', marginBottom: 6, cursor: 'pointer' }}
+              onClick={() => openWorkflow(wf)}
+            >
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <FlowIcon size={13} />
-                <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: 'var(--tx-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{wf.name}</span>
-                <button className="btn-icon" style={{ width: 20, height: 20 }} onClick={e => { e.stopPropagation(); deleteWorkflow(wf.id) }}>
+                <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: 'var(--tx-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {wf.name}
+                </span>
+                <button
+                  className="btn-icon"
+                  style={{ width: 20, height: 20 }}
+                  onClick={e => { e.stopPropagation(); deleteWorkflow(wf.id) }}
+                >
                   <TrashIcon size={11} />
                 </button>
               </div>
               <p style={{ fontSize: 10, color: 'var(--tx-muted)', marginTop: 4 }}>
-                {wf.definition?.nodes?.length || 0} step{wf.definition?.nodes?.length !== 1 ? 's' : ''}
+                {wf.definition?.nodes?.length || 0} steps · {wf.definition?.edges?.length || 0} connections
               </p>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Detail */}
-      <div style={{ flex: 1, overflow: 'auto', padding: 'var(--s5)' }}>
+      {/* Main Canvas & Toolbar Area */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {selected ? (
-          <div style={{ maxWidth: 720 }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 'var(--s5)' }}>
-              <div>
-                <h1 style={{ fontSize: 18, marginBottom: 4 }}>{selected.name}</h1>
-                <p style={{ fontSize: 12, color: 'var(--tx-muted)' }}>{nodeCount} steps · {edgeCount} connections</p>
+          <>
+            {/* Toolbar */}
+            <div
+              style={{
+                height: 48,
+                padding: '0 var(--s4)',
+                borderBottom: '1px solid var(--border)',
+                background: 'var(--bg-card)',
+                display: 'flex',
+                alignItems: 'center',
+                justify: 'space-between',
+                gap: 12,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <h1 style={{ fontSize: 15, fontWeight: 600 }}>{selected.name}</h1>
+                <span className="badge badge-muted" style={{ fontSize: 10 }}>
+                  {definition.nodes?.length || 0} steps
+                </span>
               </div>
-              <button className="btn btn-primary" onClick={triggerRun} disabled={triggering}>
-                {triggering ? <div className="spinner" style={{ width: 13, height: 13 }} /> : <PlayIcon size={13} />}
-                Run Workflow
-              </button>
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {/* Add Node Dropdown Controls */}
+                <button className="btn btn-ghost btn-xs" onClick={() => handleAddNode('request')}>
+                  + HTTP Step
+                </button>
+                <button className="btn btn-ghost btn-xs" onClick={() => handleAddNode('delay')}>
+                  + Delay
+                </button>
+                <button className="btn btn-ghost btn-xs" onClick={() => handleAddNode('condition')}>
+                  + Condition
+                </button>
+
+                <div style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 4px' }} />
+
+                <button className="btn btn-ghost btn-xs" onClick={() => setShowTemplatesModal(true)}>
+                  Templates
+                </button>
+
+                <button
+                  className="btn btn-ghost btn-xs"
+                  onClick={() => saveWorkflowDefinition()}
+                  disabled={saving}
+                >
+                  {saving ? 'Saving...' : 'Save Pipeline'}
+                </button>
+
+                <button className="btn btn-primary btn-sm" onClick={triggerRun} disabled={triggering}>
+                  {triggering ? <div className="spinner" style={{ width: 13, height: 13 }} /> : <PlayIcon size={12} />}
+                  Run Workflow
+                </button>
+              </div>
             </div>
 
-            {/* DAG visual preview */}
-            <div className="card glow-card" style={{ marginBottom: 'var(--s5)', minHeight: 140 }}>
-              <span className="section-label" style={{ padding: 0, marginBottom: 12 }}>Pipeline</span>
-              {nodeCount === 0 ? (
-                <div className="empty-state" style={{ padding: 'var(--s6) 0' }}>
-                  <p>This workflow has no steps yet. Build it via the API or workflow editor.</p>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 0, overflowX: 'auto', padding: 'var(--s2) 0' }}>
-                  {selected.definition.nodes.map((node, i) => (
-                    <div key={node.id || i} style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-                      <div style={{
-                        background: 'var(--bg-overlay)', border: '1px solid var(--border-strong)',
-                        borderRadius: 'var(--r3)', padding: '10px 14px', minWidth: 130,
-                      }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                          <span className={`method method-${node.data?.method || 'GET'}`} style={{ fontSize: 9 }}>{node.data?.method || 'GET'}</span>
-                        </div>
-                        <p style={{ fontSize: 11, color: 'var(--tx-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 110 }}>
-                          {node.data?.url || node.id}
-                        </p>
-                      </div>
-                      {i < selected.definition.nodes.length - 1 && (
-                        <svg width="28" height="14" style={{ flexShrink: 0, color: 'var(--tx-muted)' }}>
-                          <line x1="0" y1="7" x2="22" y2="7" stroke="currentColor" strokeWidth="1.5" />
-                          <polygon points="22,3 28,7 22,11" fill="currentColor" />
-                        </svg>
-                      )}
-                    </div>
-                  ))}
-                </div>
+            {/* Main Interactive Canvas & Inspector Container */}
+            <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden' }}>
+              <div style={{ flex: 1, height: '100%', position: 'relative', padding: 'var(--s3)' }}>
+                <WorkflowCanvas
+                  definition={definition}
+                  onChange={(newDef) => setDefinition(newDef)}
+                  onSelectNode={(id) => setSelectedNodeId(id)}
+                  selectedNodeId={selectedNodeId}
+                  liveMetrics={liveMetrics}
+                  nodeResults={lastCompletedRun?.node_results || []}
+                  onInspectResult={(res) => setInspectResult(res)}
+                />
+              </div>
+
+              {/* Node Inspector Drawer */}
+              {selectedNode && (
+                <NodeInspectorDrawer
+                  node={selectedNode}
+                  onUpdateNode={handleUpdateNode}
+                  onClose={() => setSelectedNodeId(null)}
+                  onDeleteNode={handleDeleteNode}
+                />
               )}
             </div>
 
-            {/* Live run panel */}
-            {activeRunId && (
-              <div className="card" style={{ marginBottom: 'var(--s5)', borderColor: 'var(--accent)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                  <div className={`status-dot ${connected ? 'green pulse' : 'muted'}`} />
-                  <span className="section-label" style={{ padding: 0 }}>Live Run · {activeRunId.slice(0, 8)}</span>
-                  <span className="badge badge-violet" style={{ marginLeft: 'auto' }}>{liveStatus || 'queued'}</span>
-                </div>
-                <div style={{ maxHeight: 160, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {events.length === 0 && <p style={{ fontSize: 11, color: 'var(--tx-muted)' }}>Waiting for events…</p>}
-                  {events.map((e, i) => (
-                    <div key={i} style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--tx-secondary)', padding: '4px 8px', background: 'var(--bg-overlay)', borderRadius: 4 }}>
-                      {JSON.stringify(e)}
-                    </div>
-                  ))}
-                </div>
+            {/* Bottom Execution History Bar */}
+            <div
+              style={{
+                height: 120,
+                borderTop: '1px solid var(--border)',
+                background: 'var(--bg-card)',
+                padding: 'var(--s3) var(--s4)',
+                overflowY: 'auto',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <span className="section-label" style={{ padding: 0 }}>Execution History</span>
+                {activeRunId && (
+                  <span className="badge badge-violet" style={{ fontSize: 9 }}>
+                    Active Run: {activeRunId.slice(0, 8)} ({liveStatus || 'running'})
+                  </span>
+                )}
               </div>
-            )}
 
-            {/* Run history */}
-            <div>
-              <span className="section-label" style={{ padding: 0, marginBottom: 10 }}>Run History</span>
-              {runs.length === 0 && <p style={{ fontSize: 12, color: 'var(--tx-muted)' }}>No runs yet</p>}
-              {runs.map(r => (
-                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--bg-overlay)', borderRadius: 6, marginBottom: 6, cursor: 'pointer' }}
-                  onClick={() => setActiveRunId(r.id)}>
-                  <StatusBadge status={r.status} />
-                  <code style={{ fontSize: 11, color: 'var(--tx-muted)' }}>{r.id.slice(0, 12)}</code>
-                  <span style={{ fontSize: 11, color: 'var(--tx-muted)', marginLeft: 'auto' }}>{r.created_at && new Date(r.created_at).toLocaleString()}</span>
-                </div>
-              ))}
+              {runs.length === 0 && <p style={{ fontSize: 11, color: 'var(--tx-muted)' }}>No execution runs recorded yet</p>}
+
+              <div style={{ display: 'flex', gap: 8, overflowX: 'auto' }}>
+                {runs.map(r => (
+                  <div
+                    key={r.id}
+                    onClick={() => setActiveRunId(r.id)}
+                    className="card card-hover"
+                    style={{
+                      padding: '6px 12px',
+                      minWidth: 160,
+                      cursor: 'pointer',
+                      borderColor: activeRunId === r.id ? 'var(--accent)' : 'var(--border)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <StatusBadge status={r.status} />
+                      <code style={{ fontSize: 10, color: 'var(--tx-muted)' }}>{r.id.slice(0, 6)}</code>
+                    </div>
+                    <span style={{ fontSize: 10, color: 'var(--tx-muted)' }}>
+                      {r.created_at && new Date(r.created_at).toLocaleTimeString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          </>
         ) : (
-          <div className="empty-state" style={{ height: '100%' }}><FlowIcon size={28} /><p>Select a workflow to view its pipeline and runs</p></div>
+          <div className="empty-state" style={{ height: '100%' }}>
+            <FlowIcon size={28} />
+            <p>Select a workflow from the left sidebar or create a new one to open the pipeline builder</p>
+          </div>
         )}
       </div>
 
+      {/* Templates Modal */}
+      {showTemplatesModal && (
+        <WorkflowTemplatesModal
+          onSelectTemplate={handleSelectTemplate}
+          onClose={() => setShowTemplatesModal(false)}
+        />
+      )}
+
+      {/* Node Execution Result Modal */}
+      {inspectResult && (
+        <NodeExecutionModal
+          result={inspectResult}
+          onClose={() => setInspectResult(null)}
+        />
+      )}
+
+      {/* Live Run Logs Drawer */}
       {activeRunId && (
         <LiveRunDrawer
           getToken={getToken}
