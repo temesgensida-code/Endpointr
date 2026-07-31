@@ -58,36 +58,9 @@ def _save_chat_turns(user_id, conversation_id, question, answer):
 
 class AiChatStreamConsumer(AsyncJsonWebsocketConsumer):
     async def connect(self):
-        query_string = self.scope.get('query_string', b'').decode('utf-8')
-        query = parse_qs(query_string)
-
-        token = (query.get('token', [''])[0] or '').strip()
-        client_user_id = (query.get('client_user_id', [''])[0] or '').strip()
-
-        self.require_auth = getattr(settings, 'API_PROXY_REQUIRE_AUTH', not settings.DEBUG)
-        self.user_id = None
-
-        if token:
-            try:
-                claims = await sync_to_async(validate_clerk_token)(token)
-                self.user_id = str(claims.get('sub') or '').strip() or None
-            except Exception:
-                # In local/dev mode auth may be optional; mirror HTTP fallback behavior.
-                if self.require_auth:
-                    await self.close(code=4401)
-                    return
-
-        if not self.user_id and client_user_id:
-            self.user_id = client_user_id
-
-        if not self.user_id and settings.DEBUG:
-            self.user_id = 'dev-user'
-
-        if self.require_auth and not self.user_id:
-            await self.close(code=4401)
-            return
-
+        self.user_id = 'single_user'
         await self.accept()
+
 
     async def receive_json(self, content, **kwargs):
         question = str(content.get('message') or '').strip()
