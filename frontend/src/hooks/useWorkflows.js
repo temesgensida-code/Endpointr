@@ -9,7 +9,7 @@ export function useWorkflows(getToken, projectId) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
-  const svc = workflowsService(getToken)
+  const svc = workflowsService()
 
   const refetch = useCallback(async () => {
     if (!projectId) return
@@ -23,28 +23,28 @@ export function useWorkflows(getToken, projectId) {
     } finally {
       setLoading(false)
     }
-  }, [getToken, projectId])
+  }, [projectId])
 
   useEffect(() => {
-    if (getToken && projectId) refetch()
-  }, [getToken, projectId, refetch])
+    if (projectId) refetch()
+  }, [projectId, refetch])
 
   const createWorkflow = useCallback(async (data) => {
     const wf = await svc.create(projectId, data)
     setWorkflows((prev) => [wf, ...prev])
     return wf
-  }, [getToken, projectId])
+  }, [projectId])
 
   const updateWorkflow = useCallback(async (workflowId, data) => {
     const updated = await svc.update(projectId, workflowId, data)
     setWorkflows((prev) => prev.map((w) => (w.id === workflowId ? updated : w)))
     return updated
-  }, [getToken, projectId])
+  }, [projectId])
 
   const deleteWorkflow = useCallback(async (workflowId) => {
     await svc.delete(projectId, workflowId)
     setWorkflows((prev) => prev.filter((w) => w.id !== workflowId))
-  }, [getToken, projectId])
+  }, [projectId])
 
   /**
    * Trigger a workflow run. Returns { run_id, status }.
@@ -53,14 +53,15 @@ export function useWorkflows(getToken, projectId) {
    */
   const triggerRun = useCallback(async (workflowId) => {
     return svc.triggerRun(projectId, workflowId)
-  }, [getToken, projectId])
+  }, [projectId])
 
   const listRuns = useCallback(async (workflowId) => {
     return svc.listRuns(projectId, workflowId)
-  }, [getToken, projectId])
+  }, [projectId])
 
   return {
     workflows, loading, error, refetch,
     createWorkflow, updateWorkflow, deleteWorkflow, triggerRun, listRuns,
   }
 }
+
