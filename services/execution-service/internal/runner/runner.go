@@ -55,10 +55,12 @@ func New(nc NATSConn, controlPlaneURL string, log *zap.Logger, workerCount int) 
 }
 
 // SubscribeAll registers all NATS subject handlers.
+// NOTE: The Dispatcher in dispatcher.go is the active subscription path.
+// This method is retained for backwards compatibility but workflow runs
+// are handled by WorkflowExecutor via the Dispatcher.
 func (r *Runner) SubscribeAll(ctx context.Context) error {
 	subjects := map[string]func(context.Context, map[string]interface{}){
-		"runs.workflow.requested": r.handleWorkflowRun,
-		"runs.perf.requested":     r.handlePerfRun,
+		"runs.perf.requested": r.handlePerfRun,
 	}
 	for subj, handler := range subjects {
 		h := handler // capture loop variable
@@ -85,160 +87,6 @@ func (r *Runner) SubscribeAll(ctx context.Context) error {
 		r.log.Info("Subscribed to subject", zap.String("subject", subj))
 	}
 	return nil
-}
-
-// ─── Workflow run ─────────────────────────────────────────────────────────────
-
-func (r *Runner) handleWorkflowRun(ctx context.Context, payload map[string]interface{}) {
-	runID, _ := payload["run_id"].(string)
-	definition, _ := payload["definition"].(map[string]interface{})
-
-	r.log.Info("Workflow run starting", zap.String("run_id", runID))
-	r.patchRunStatus(runID, "running", "workflow")
-
-	results, err := r.executeWorkflowDefinition(ctx, definition)
-
-	status := "passed"
-	if err != nil {
-		r.log.Error("Workflow run error", zap.String("run_id", runID), zap.Error(err))
-		status = "failed"
-	} else {
-		for _, step := range results {
-			if s, ok := step["status"].(string); ok && s == "failed" {
-				status = "failed"
-				break
-			}
-		}
-	}
-
-	summary := map[string]interface{}{
-		"steps":  results,
-		"status": status,
-	}
-
-	r.publishCompleted(runID, status, summary)
-	r.patchRunStatus(runID, status, "workflow")
-	r.log.Info("Workflow run complete", zap.String("run_id", runID), zap.String("status", status))
-}
-
-// executeWorkflowDefinition iterates over DAG nodes and executes HTTP requests.
-func (r *Runner) executeWorkflowDefinition(ctx context.Context, definition map[string]interface{}) ([]map[string]interface{}, error) {
-	nodes, _ := definition["nodes"].([]interface{})
-	var results []map[string]interface{}
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	errs := make([]error, 0)
-
-	for _, nodeRaw := range nodes {
-		node, ok := nodeRaw.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		nodeType, _ := node["type"].(string)
-		if nodeType != "request" {
-			continue
-		}
-		data, _ := node["data"].(map[string]interface{})
-		wg.Add(1)
-		go func(n map[string]interface{}, d map[string]interface{}) {
-			defer wg.Done()
-			result := r.executeHTTPNode(ctx, n, d)
-			mu.Lock()
-			results = append(results, result)
-			mu.Unlock()
-		}(node, data)
-	}
-	wg.Wait()
-
-	if len(errs) > 0 {
-		return results, errs[0]
-	}
-	return results, nil
-}
-
-func (r *Runner) executeHTTPNode(ctx context.Context, node, data map[string]interface{}) map[string]interface{} {
-	nodeID, _ := node["id"].(string)
-	method, _ := data["method"].(string)
-	url, _ := data["url"].(string)
-	if method == "" {
-		method = "GET"
-	}
-
-	start := time.Now()
-
-	var bodyReader io.Reader
-	if body, ok := data["body"].(string); ok && body != "" {
-		bodyReader = bytes.NewBufferString(body)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
-	if err != nil {
-		return map[string]interface{}{"node_id": nodeID, "status": "failed", "error": err.Error()}
-	}
-
-	if headers, ok := data["headers"].(map[string]interface{}); ok {
-		for k, v := range headers {
-			if sv, ok := v.(string); ok {
-				req.Header.Set(k, sv)
-			}
-		}
-	}
-
-	resp, err := r.httpClient.Do(req)
-	latencyMs := time.Since(start).Milliseconds()
-	if err != nil {
-		return map[string]interface{}{"node_id": nodeID, "status": "failed", "error": err.Error(), "latency_ms": latencyMs}
-	}
-	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MB cap
-
-	status := "passed"
-	if resp.StatusCode >= 400 {
-		status = "failed"
-	}
-
-	// Evaluate assertions
-	assertions, _ := data["assertions"].([]interface{})
-	assertionResults := r.evaluateAssertions(assertions, resp.StatusCode, respBody)
-	for _, ar := range assertionResults {
-		if s, ok := ar["passed"].(bool); ok && !s {
-			status = "failed"
-		}
-	}
-
-	return map[string]interface{}{
-		"node_id":    nodeID,
-		"status":     status,
-		"http_status": resp.StatusCode,
-		"latency_ms": latencyMs,
-		"assertions": assertionResults,
-	}
-}
-
-func (r *Runner) evaluateAssertions(assertions []interface{}, statusCode int, body []byte) []map[string]interface{} {
-	results := make([]map[string]interface{}, 0)
-	for _, aRaw := range assertions {
-		a, ok := aRaw.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		aType, _ := a["type"].(string)
-		cfg, _ := a["config"].(map[string]interface{})
-
-		var passed bool
-		switch aType {
-		case "status_code":
-			expected, _ := cfg["expected"].(float64)
-			passed = statusCode == int(expected)
-		default:
-			passed = true // unknown assertions pass (non-blocking)
-		}
-		results = append(results, map[string]interface{}{
-			"type":   aType,
-			"passed": passed,
-		})
-	}
-	return results
 }
 
 // ─── Perf run ────────────────────────────────────────────────────────────────
