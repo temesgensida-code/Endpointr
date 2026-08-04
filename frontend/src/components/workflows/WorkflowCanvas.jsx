@@ -4,6 +4,7 @@ export default function WorkflowCanvas({
   definition,
   onChange,
   onSelectNode,
+  onDeleteNode,
   selectedNodeId,
   liveMetrics = {}, // { node_id: { status, duration_ms } }
   nodeResults = [], // array of nodeResult from completed run
@@ -21,6 +22,23 @@ export default function WorkflowCanvas({
   // Mapping from node ID to node execution status
   const resultMap = {}
   nodeResults.forEach(r => { resultMap[r.node_id] = r })
+
+  // Handle Delete / Backspace keys to delete selected node
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (!selectedNodeId || !onDeleteNode) return
+      // Don't trigger if user is typing in an input/textarea
+      const tag = e.target.tagName.toLowerCase()
+      if (tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return
+
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault()
+        onDeleteNode(selectedNodeId)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedNodeId, onDeleteNode])
 
   const handleMouseDownNode = (e, node) => {
     if (e.button !== 0) return
@@ -338,6 +356,16 @@ export default function WorkflowCanvas({
                 }`} style={{ fontSize: 8, padding: '1px 4px' }}>
                   {currentStatus}
                 </span>
+              )}
+              {onDeleteNode && (
+                <button
+                  className="btn-icon"
+                  style={{ width: 18, height: 18, color: 'var(--tx-muted)', padding: 0 }}
+                  onClick={(e) => { e.stopPropagation(); onDeleteNode(node.id) }}
+                  title="Delete node"
+                >
+                  <span style={{ fontSize: 13, lineHeight: 1 }}>×</span>
+                </button>
               )}
             </div>
 

@@ -325,6 +325,7 @@ export default function WorkflowsView({ getToken, projectId, onNavigate }) {
                   definition={definition}
                   onChange={(newDef) => setDefinition(newDef)}
                   onSelectNode={(id) => setSelectedNodeId(id)}
+                  onDeleteNode={handleDeleteNode}
                   selectedNodeId={selectedNodeId}
                   liveMetrics={liveMetrics}
                   nodeResults={lastCompletedRun?.node_results || []}

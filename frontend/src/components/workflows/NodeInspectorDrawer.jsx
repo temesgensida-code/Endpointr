@@ -87,7 +87,17 @@ export default function NodeInspectorDrawer({ node, onUpdateNode, onClose, onDel
             placeholder="Step Name"
           />
         </div>
-        <button className="btn-icon" onClick={onClose} style={{ fontSize: 16 }}>×</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button
+            className="btn-icon"
+            onClick={() => onDeleteNode(node.id)}
+            title="Delete this step"
+            style={{ color: 'var(--red)', width: 26, height: 26 }}
+          >
+            <TrashIcon size={14} />
+          </button>
+          <button className="btn-icon" onClick={onClose} style={{ fontSize: 16, width: 26, height: 26 }}>×</button>
+        </div>
       </div>
 
       {/* Navigation Tabs */}
@@ -372,5 +382,16 @@ export default function NodeInspectorDrawer({ node, onUpdateNode, onClose, onDel
         )}
       </div>
     </div>
+  )
+}
+
+function TrashIcon({ size = 14 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6l-1 14H6L5 6" />
+      <path d="M10 11v6M14 11v6" />
+      <path d="M9 6V4h6v2" />
+    </svg>
   )
 }
