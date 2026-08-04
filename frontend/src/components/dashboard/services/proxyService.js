@@ -1,8 +1,7 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 
 export async function sendProxyRequestApi({
-  getToken,
-  userId,
+  userId = 'single_user',
   requestMethod,
   requestUrl,
   requestJsonBody,
@@ -24,16 +23,10 @@ export async function sendProxyRequestApi({
     }
   }
 
-  const token = await getToken()
-  if (!token) {
-    throw new Error('No Clerk token available yet. Try again in a moment.')
-  }
-
   const response = await fetch(`${API_BASE_URL}/api-request/proxy/`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({
       method: requestMethod,
