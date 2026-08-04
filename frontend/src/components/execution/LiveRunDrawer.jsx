@@ -133,32 +133,149 @@ export default function LiveRunDrawer({ getToken, runId, title, type = 'perf', p
         ) : (
           /* Workflow DAG Execution View */
           <div>
+            {/* KPI summary tiles */}
+            {(() => {
+              const completedEv = events.find(e => e.type === 'completed' || e.node_results)
+              const nodeResults = completedEv?.node_results || nodeEvents
+              const totalPassed = nodeResults.filter(r => r.status === 'passed').length
+              const totalFailed = nodeResults.filter(r => r.status === 'failed').length
+              const totalSkipped = nodeResults.filter(r => r.status === 'skipped').length
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--s3)', marginBottom: 'var(--s4)' }}>
+                  <LiveKpi label="Passed Steps" value={totalPassed} accent />
+                  <LiveKpi label="Failed Steps" value={totalFailed} danger={totalFailed > 0} />
+                  <LiveKpi label="Skipped Steps" value={totalSkipped} />
+                </div>
+              )
+            })()}
+
             <div style={{ marginBottom: 'var(--s4)' }}>
-              <span className="section-label" style={{ paddingLeft: 0 }}>DAG Node Execution Log</span>
-              {nodeEvents.length === 0 ? (
-                <div className="empty-state" style={{ padding: 'var(--s6)' }}>
-                  <div className="spinner" />
-                  <p style={{ fontSize: 12, marginTop: 8 }}>Executing parallel DAG nodes in Go...</p>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {nodeEvents.map((ne, idx) => (
-                    <div key={idx} className="card" style={{ padding: '10px 14px', background: 'var(--bg-subtle)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span className={`badge ${ne.status === 'passed' ? 'badge-green' : ne.status === 'failed' ? 'badge-red' : 'badge-blue'}`}>
-                            {ne.status}
-                          </span>
-                          <span style={{ fontSize: 12, fontWeight: 600, fontFamily: 'var(--font-mono)' }}>Node #{ne.node_id}</span>
-                        </div>
-                        <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--tx-muted)' }}>
-                          {ne.duration_ms}ms
-                        </span>
-                      </div>
+              <span className="section-label" style={{ paddingLeft: 0 }}>DAG Node Execution Breakdown</span>
+              {(() => {
+                const completedEv = events.find(e => e.type === 'completed' || e.node_results)
+                const listToRender = completedEv?.node_results || nodeEvents
+
+                if (listToRender.length === 0) {
+                  return (
+                    <div className="empty-state" style={{ padding: 'var(--s6)' }}>
+                      <div className="spinner" />
+                      <p style={{ fontSize: 12, marginTop: 8 }}>Executing DAG nodes in Go execution service...</p>
                     </div>
-                  ))}
-                </div>
-              )}
+                  )
+                }
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {listToRender.map((ne, idx) => (
+                      <div key={idx} className="card" style={{ padding: '12px 14px', background: 'var(--bg-subtle)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span className={`badge ${
+                              ne.status === 'passed' ? 'badge-green' :
+                              ne.status === 'failed' ? 'badge-red' :
+                              ne.status === 'skipped' ? 'badge-yellow' : 'badge-blue'
+                            }`}>
+                              {ne.status}
+                            </span>
+                            <span style={{ fontSize: 13, fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--tx-primary)' }}>
+                              {ne.node_id}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            {ne.status_code && (
+                              <span className={`badge ${ne.status_code < 400 ? 'badge-green' : 'badge-red'}`} style={{ fontSize: 10 }}>
+                                HTTP {ne.status_code}
+                              </span>
+                            )}
+                            <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--tx-muted)' }}>
+                              {ne.duration_ms || 0}ms
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Error message */}
+                        {ne.error && (
+                          <div style={{ fontSize: 11, color: 'var(--red)', background: 'rgba(239, 68, 68, 0.1)', padding: '6px 8px', borderRadius: 4, marginTop: 6, fontFamily: 'var(--font-mono)' }}>
+                            Error: {ne.error}
+                          </div>
+                        )}
+
+                        {/* Extracted Variables */}
+                        {ne.extracted_vars && Object.keys(ne.extracted_vars).length > 0 && (
+                          <div style={{ marginTop: 8, fontSize: 11 }}>
+                            <div style={{ color: 'var(--tx-muted)', fontSize: 10, marginBottom: 2 }}>Extracted Variables:</div>
+                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                              {Object.entries(ne.extracted_vars).map(([k, v]) => (
+                                <span key={k} className="badge badge-violet" style={{ fontSize: 10, fontFamily: 'var(--font-mono)' }}>
+                                  ⚡ {k} = "{v}"
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Assertions */}
+                        {ne.assertions && ne.assertions.length > 0 && (
+                          <div style={{ marginTop: 8, fontSize: 11 }}>
+                            <div style={{ color: 'var(--tx-muted)', fontSize: 10, marginBottom: 2 }}>Assertions:</div>
+                            {ne.assertions.map((a, i) => (
+                              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+                                <span style={{ color: a.passed ? 'var(--green)' : 'var(--red)' }}>
+                                  {a.passed ? '✓' : '✗'}
+                                </span>
+                                <span style={{ color: 'var(--tx-secondary)' }}>{a.type}</span>
+                                <span style={{ color: 'var(--tx-muted)', fontSize: 10 }}>({a.detail})</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Response Preview */}
+                        {ne.response_preview && (
+                          <div style={{ marginTop: 8 }}>
+                            <div style={{ color: 'var(--tx-muted)', fontSize: 10, marginBottom: 2 }}>Response Preview:</div>
+                            <pre style={{
+                              margin: 0,
+                              padding: '6px 8px',
+                              background: 'var(--bg-base)',
+                              borderRadius: 4,
+                              fontSize: 10,
+                              fontFamily: 'var(--font-mono)',
+                              color: 'var(--tx-secondary)',
+                              maxHeight: 100,
+                              overflowY: 'auto',
+                              whiteSpace: 'pre-wrap',
+                              wordBreak: 'break-all',
+                            }}>
+                              {ne.response_preview}
+                            </pre>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+            </div>
+
+            {/* Live Terminal Output */}
+            <div style={{ marginTop: 'var(--s4)' }}>
+              <span className="section-label" style={{ paddingLeft: 0 }}>Raw WebSocket Stream Frames ({events.length})</span>
+              <div className="code-block" style={{ height: 180, background: 'var(--bg-base)', fontSize: 10, lineHeight: 1.5 }}>
+                {events.length === 0 ? (
+                  <div style={{ color: 'var(--tx-muted)' }}>Awaiting telemetry frames...</div>
+                ) : (
+                  events.map((ev, idx) => (
+                    <div key={idx} style={{ marginBottom: 4, wordBreak: 'break-all' }}>
+                      <span style={{ color: 'var(--tx-muted)' }}>[{new Date().toLocaleTimeString()}]</span>{' '}
+                      <span style={{ color: ev.status === 'failed' ? 'var(--red)' : ev.type === 'completed' ? 'var(--green)' : 'var(--accent)' }}>
+                        {JSON.stringify(ev)}
+                      </span>
+                    </div>
+                  ))
+                )}
+                <div ref={terminalEndRef} />
+              </div>
             </div>
           </div>
         )}
