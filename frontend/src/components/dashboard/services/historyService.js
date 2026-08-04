@@ -1,7 +1,6 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 
-export async function fetchRequestHistory({ getToken, userId }) {
-  const token = await getToken()
+export async function fetchRequestHistory({ userId = 'single_user' } = {}) {
   const params = new URLSearchParams()
   if (userId) {
     params.set('client_user_id', userId)
@@ -9,11 +8,9 @@ export async function fetchRequestHistory({ getToken, userId }) {
 
   const response = await fetch(`${API_BASE_URL}/api-request/history/?${params.toString()}`, {
     method: 'GET',
-    headers: token
-      ? {
-          Authorization: `Bearer ${token}`,
-        }
-      : {},
+    headers: {
+      'Content-Type': 'application/json',
+    },
   })
 
   const payload = await response.json()
@@ -29,14 +26,11 @@ export async function fetchRequestHistory({ getToken, userId }) {
 }
 
 
-export async function deleteRequestHistoryItemApi({ getToken, userId, historyId }) {
-  const token = await getToken()
-
+export async function deleteRequestHistoryItemApi({ userId = 'single_user', historyId }) {
   const response = await fetch(`${API_BASE_URL}/api-request/history/delete/`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify({
       client_user_id: userId,
