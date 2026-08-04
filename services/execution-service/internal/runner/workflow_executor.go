@@ -202,10 +202,17 @@ func (e *WorkflowExecutor) Execute(p WorkflowRunPayload) {
 
 		// Stream per-node live metric update
 		_ = natsclient.Publish(e.nc, "results.metric", map[string]any{
-			"type": "metric", "run_id": p.RunID, "project_id": p.ProjectID,
-			"node_id":     result.NodeID,
-			"status":      result.Status,
-			"duration_ms": result.DurationMs,
+			"type":             "metric",
+			"run_id":           p.RunID,
+			"project_id":       p.ProjectID,
+			"node_id":          result.NodeID,
+			"status":           result.Status,
+			"duration_ms":      result.DurationMs,
+			"status_code":      result.StatusCode,
+			"error":            result.Error,
+			"assertions":       result.Assertions,
+			"extracted_vars":   result.ExtractedVars,
+			"response_preview": result.ResponsePreview,
 		})
 
 		// Decrement in-degree for downstream children and trigger ready nodes
@@ -390,6 +397,9 @@ func getJSONPath(data any, path string) string {
 func (e *WorkflowExecutor) executeRequestNode(ctx context.Context, n node, varCtx map[string]string) nodeResult {
 	rawURL, _ := n.Data["url"].(string)
 	rawURL = interpolateVars(rawURL, varCtx)
+	if rawURL != "" && !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
+		rawURL = "https://" + rawURL
+	}
 	method, _ := n.Data["method"].(string)
 	if method == "" {
 		method = "GET"
