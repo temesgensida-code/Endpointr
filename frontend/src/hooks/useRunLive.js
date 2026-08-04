@@ -57,7 +57,14 @@ export function useRunLive(getToken, runId) {
       connect()
     }
     return () => {
-      if (wsRef.current) wsRef.current.close()
+      if (wsRef.current) {
+        const ws = wsRef.current
+        if (ws.readyState === WebSocket.CONNECTING) {
+          ws.onopen = () => ws.close()
+        } else if (ws.readyState === WebSocket.OPEN) {
+          ws.close()
+        }
+      }
     }
   }, [runId, connect])
 
@@ -96,7 +103,14 @@ export function useProjectLive(getToken, projectId, onEvent) {
 
     return () => {
       cancelled = true
-      if (wsRef.current) wsRef.current.close()
+      if (wsRef.current) {
+        const ws = wsRef.current
+        if (ws.readyState === WebSocket.CONNECTING) {
+          ws.onopen = () => ws.close()
+        } else if (ws.readyState === WebSocket.OPEN) {
+          ws.close()
+        }
+      }
     }
   }, [projectId, onEvent])
 
