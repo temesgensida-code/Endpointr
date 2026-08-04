@@ -1,13 +1,11 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 const WS_BASE_URL = API_BASE_URL.replace(/^http/, 'ws')
 
-export async function sendChatMessageApi({ getToken, userId, question, conversationId }) {
-  const token = await getToken()
+export async function sendChatMessageApi({ userId = 'single_user', question, conversationId }) {
   const response = await fetch(`${API_BASE_URL}/ai/chat/`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify({
       message: question,
@@ -31,14 +29,10 @@ export async function sendChatMessageApi({ getToken, userId, question, conversat
   }
 }
 
-export async function streamChatMessageWs({ getToken, userId, question, conversationId, onChunk }) {
-  let token = ''
-  try { token = await getToken() } catch {}
-
+export async function streamChatMessageWs({ userId = 'single_user', question, conversationId, onChunk }) {
   const params = new URLSearchParams({
     conversation_id: conversationId,
     ...(userId ? { client_user_id: userId } : {}),
-    ...(token ? { token } : {}),
   })
 
   return new Promise((resolve, reject) => {
@@ -47,7 +41,7 @@ export async function streamChatMessageWs({ getToken, userId, question, conversa
       socket = new WebSocket(`${WS_BASE_URL}/ws/ai/chat/?${params.toString()}`)
     } catch {
       // WS creation failed — fallback to HTTP REST
-      sendChatMessageApi({ getToken, userId, question, conversationId })
+      sendChatMessageApi({ userId, question, conversationId })
         .then(resolve)
         .catch(reject)
       return
@@ -60,7 +54,7 @@ export async function streamChatMessageWs({ getToken, userId, question, conversa
     const fallbackToHttp = () => {
       if (completed) return
       completed = true
-      sendChatMessageApi({ getToken, userId, question, conversationId })
+      sendChatMessageApi({ userId, question, conversationId })
         .then(res => {
           if (!receivedAnyChunk && typeof onChunk === 'function' && res.answer) {
             onChunk(res.answer)
@@ -138,13 +132,11 @@ export async function streamChatMessageWs({ getToken, userId, question, conversa
   })
 }
 
-export async function fetchAiChatHistoryApi({ getToken, userId, action = "list_conversations", conversationId = "" }) {
-  const token = await getToken()
+export async function fetchAiChatHistoryApi({ userId = 'single_user', action = "list_conversations", conversationId = "" }) {
   const response = await fetch(`${API_BASE_URL}/ai/history/`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify({
       client_user_id: userId,
@@ -165,17 +157,15 @@ export async function fetchAiChatHistoryApi({ getToken, userId, action = "list_c
   return payload.history || []
 }
 
-export async function fetchAiConversationTurnsApi({ getToken, userId, conversationId }) {
-  return fetchAiChatHistoryApi({ getToken, userId, action: 'get_conversation', conversationId })
+export async function fetchAiConversationTurnsApi({ userId = 'single_user', conversationId }) {
+  return fetchAiChatHistoryApi({ userId, action: 'get_conversation', conversationId })
 }
 
-export async function deleteAiChatHistoryApi({ getToken, userId, conversationId }) {
-  const token = await getToken()
+export async function deleteAiChatHistoryApi({ userId = 'single_user', conversationId }) {
   const response = await fetch(`${API_BASE_URL}/ai/history/`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify({
       client_user_id: userId,
