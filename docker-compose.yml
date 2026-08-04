@@ -45,7 +45,7 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "6380:6379"
 
   nats:
     image: nats:2.10-alpine
