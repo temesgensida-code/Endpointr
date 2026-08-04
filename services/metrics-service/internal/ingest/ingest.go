@@ -63,6 +63,23 @@ func New(natsURL, dsn string, log *zap.Logger) (*Ingester, error) {
 				log.Warn("Postgres ping failed — metrics will be dropped until DB ready", zap.Error(err))
 			} else {
 				db = d
+				// Ensure request_metrics table exists
+				createTableSQL := `
+				CREATE TABLE IF NOT EXISTS request_metrics (
+					time TIMESTAMPTZ NOT NULL,
+					project_id TEXT,
+					run_id TEXT,
+					endpoint TEXT,
+					method TEXT,
+					status_code INT,
+					latency_ms DOUBLE PRECISION,
+					error BOOLEAN
+				);`
+				if _, err := db.Exec(createTableSQL); err != nil {
+					log.Warn("Failed to create request_metrics table", zap.Error(err))
+				}
+				// Try creating TimescaleDB hypertable (ignored if standard Postgres or already hypertable)
+				_, _ = db.Exec("SELECT create_hypertable('request_metrics', 'time', if_not_exists => TRUE);")
 			}
 		}
 	} else {
