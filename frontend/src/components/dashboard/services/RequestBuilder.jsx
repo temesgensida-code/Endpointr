@@ -324,7 +324,7 @@ export default function RequestBuilder({ getToken, userId }) {
                 )}
               </>
             )}
-            <div className="tabs" style={{ maxWidth: 160 }}>
+            <div className="tabs" style={{ width: 'fit-content' }}>
               {['pretty', 'raw', 'headers'].map(t => (
                 <button key={t} className={`tab ${responseTab === t ? 'active' : ''}`}
                   onClick={() => setResponseTab(t)} style={{ fontSize: 11, textTransform: 'capitalize' }}>{t}</button>
