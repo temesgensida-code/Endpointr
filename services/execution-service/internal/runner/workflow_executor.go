@@ -175,6 +175,15 @@ func (e *WorkflowExecutor) Execute(p WorkflowRunPayload) {
 			return
 		}
 
+		// Publish "running" status event immediately so UI shows active execution
+		_ = natsclient.Publish(e.nc, "results.metric", map[string]any{
+			"type":       "metric",
+			"run_id":     p.RunID,
+			"project_id": p.ProjectID,
+			"node_id":    nodeID,
+			"status":     "running",
+		})
+
 		mu.Lock()
 		ctxVars := make(map[string]string, len(varCtx))
 		for k, v := range varCtx {
@@ -329,8 +338,12 @@ func parseDAG(definition map[string]any) (map[string]node, map[string]int, map[s
 		src, _ := m["source"].(string)
 		target, _ := m["target"].(string)
 		if src != "" && target != "" {
-			graph[src] = append(graph[src], target)
-			inDegree[target]++
+			if _, srcExists := nodeMap[src]; srcExists {
+				if _, tgtExists := nodeMap[target]; tgtExists {
+					graph[src] = append(graph[src], target)
+					inDegree[target]++
+				}
+			}
 		}
 	}
 
@@ -371,7 +384,8 @@ func (e *WorkflowExecutor) executeNode(ctx context.Context, n node, varCtx map[s
 			}},
 		}
 	default:
-		return nodeResult{NodeID: n.ID, Status: "skipped"}
+		// Default to HTTP request execution for "request", "", or custom types
+		return e.executeRequestNode(ctx, n, varCtx)
 	}
 }
 
