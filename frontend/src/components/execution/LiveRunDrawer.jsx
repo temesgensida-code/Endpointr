@@ -194,9 +194,9 @@ export default function LiveRunDrawer({ getToken, runId, title, type = 'perf', p
                         </div>
 
                         {/* Error message */}
-                        {ne.error && (
+                        {(ne.error_msg || (typeof ne.error === 'string' && ne.error)) && (
                           <div style={{ fontSize: 11, color: 'var(--red)', background: 'rgba(239, 68, 68, 0.1)', padding: '6px 8px', borderRadius: 4, marginTop: 6, fontFamily: 'var(--font-mono)' }}>
-                            Error: {ne.error}
+                            Error: {ne.error_msg || ne.error}
                           </div>
                         )}
 
