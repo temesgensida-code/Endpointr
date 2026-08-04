@@ -40,7 +40,10 @@ export default function WorkflowsView({ getToken, projectId, onNavigate }) {
           duration_ms: lastEvent.duration_ms,
         }
       }))
-    } else if (lastEvent.type === 'completed') {
+    } else if (
+      lastEvent.type === 'completed' ||
+      (['passed', 'failed', 'partial'].includes(lastEvent.status) && lastEvent.node_results)
+    ) {
       setLastCompletedRun(lastEvent)
     }
   }, [events])
