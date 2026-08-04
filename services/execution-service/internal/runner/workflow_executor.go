@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -84,7 +85,8 @@ func (e *WorkflowExecutor) Execute(p WorkflowRunPayload) {
 
 	// Publish "running" status update first
 	_ = natsclient.Publish(e.nc, "results.run.status", map[string]any{
-		"run_id": p.RunID, "status": "running", "started_at": startedAt,
+		"type": "status", "run_id": p.RunID, "project_id": p.ProjectID,
+		"status": "running", "started_at": startedAt,
 	})
 
 	nodeMap, inDegree, graph := parseDAG(p.Definition)
@@ -98,8 +100,10 @@ func (e *WorkflowExecutor) Execute(p WorkflowRunPayload) {
 		mu          sync.Mutex
 		varCtx      = make(map[string]string)
 		nodeResults = make([]nodeResult, 0, totalNodes)
+		failedNodes = make(map[string]bool)
 		passed      int32
 		failed      int32
+		skipped     int32
 		wg          sync.WaitGroup
 	)
 
@@ -114,12 +118,60 @@ func (e *WorkflowExecutor) Execute(p WorkflowRunPayload) {
 
 	ctx := context.Background()
 
+	// anyParentFailed checks whether any direct parent of childID has failed.
+	anyParentFailed := func(childID string) bool {
+		for parentID, children := range graph {
+			for _, cid := range children {
+				if cid == childID && failedNodes[parentID] {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
 	var processNode func(nodeID string)
 	processNode = func(nodeID string) {
 		defer wg.Done()
 
 		n, exists := nodeMap[nodeID]
 		if !exists {
+			return
+		}
+
+		// Check if any parent of this node failed — skip if so
+		mu.Lock()
+		parentFailed := anyParentFailed(nodeID)
+		mu.Unlock()
+
+		if parentFailed {
+			result := nodeResult{
+				NodeID: nodeID,
+				Status: "skipped",
+				Error:  "skipped: upstream dependency failed",
+			}
+			mu.Lock()
+			nodeResults = append(nodeResults, result)
+			failedNodes[nodeID] = true // propagate failure downstream
+			mu.Unlock()
+			atomic.AddInt32(&skipped, 1)
+
+			_ = natsclient.Publish(e.nc, "results.metric", map[string]any{
+				"type": "metric", "run_id": p.RunID, "project_id": p.ProjectID,
+				"node_id": nodeID, "status": "skipped", "duration_ms": 0,
+			})
+
+			// Still propagate to children so they also get skipped
+			mu.Lock()
+			children := graph[nodeID]
+			for _, childID := range children {
+				inDegree[childID]--
+				if inDegree[childID] == 0 {
+					wg.Add(1)
+					go processNode(childID)
+				}
+			}
+			mu.Unlock()
 			return
 		}
 
@@ -137,6 +189,9 @@ func (e *WorkflowExecutor) Execute(p WorkflowRunPayload) {
 		for k, v := range result.ExtractedVars {
 			varCtx[k] = v
 		}
+		if result.Status == "failed" {
+			failedNodes[nodeID] = true
+		}
 		mu.Unlock()
 
 		if result.Status == "passed" {
@@ -147,13 +202,13 @@ func (e *WorkflowExecutor) Execute(p WorkflowRunPayload) {
 
 		// Stream per-node live metric update
 		_ = natsclient.Publish(e.nc, "results.metric", map[string]any{
-			"run_id":      p.RunID,
+			"type": "metric", "run_id": p.RunID, "project_id": p.ProjectID,
 			"node_id":     result.NodeID,
 			"status":      result.Status,
 			"duration_ms": result.DurationMs,
 		})
 
-		// Decrement in-degree for downstream children and trigger ready nodes concurrently
+		// Decrement in-degree for downstream children and trigger ready nodes
 		mu.Lock()
 		children := graph[nodeID]
 		for _, childID := range children {
@@ -178,10 +233,11 @@ func (e *WorkflowExecutor) Execute(p WorkflowRunPayload) {
 	finalStatus := "passed"
 	fCount := atomic.LoadInt32(&failed)
 	pCount := atomic.LoadInt32(&passed)
+	sCount := atomic.LoadInt32(&skipped)
 
 	if fCount > 0 && pCount == 0 {
 		finalStatus = "failed"
-	} else if fCount > 0 {
+	} else if fCount > 0 || sCount > 0 {
 		finalStatus = "partial"
 	}
 
@@ -189,20 +245,22 @@ func (e *WorkflowExecutor) Execute(p WorkflowRunPayload) {
 }
 
 func (e *WorkflowExecutor) finishRun(p WorkflowRunPayload, startedAt time.Time, results []nodeResult, passed, failed int, finalStatus string) {
-	event := runResultEvent{
-		RunID:       p.RunID,
-		WorkflowID:  p.WorkflowID,
-		ProjectID:   p.ProjectID,
-		Status:      finalStatus,
-		StartedAt:   startedAt,
-		FinishedAt:  time.Now(),
-		NodeResults: results,
-		TotalNodes:  len(results),
-		PassedNodes: passed,
-		FailedNodes: failed,
+	// Publish with "type": "completed" so frontend can detect completion events
+	completedPayload := map[string]any{
+		"type":         "completed",
+		"run_id":       p.RunID,
+		"workflow_id":  p.WorkflowID,
+		"project_id":   p.ProjectID,
+		"status":       finalStatus,
+		"started_at":   startedAt,
+		"finished_at":  time.Now(),
+		"node_results": results,
+		"total_nodes":  len(results),
+		"passed_nodes": passed,
+		"failed_nodes": failed,
 	}
 
-	if err := natsclient.Publish(e.nc, "results.run.completed", event); err != nil {
+	if err := natsclient.Publish(e.nc, "results.run.completed", completedPayload); err != nil {
 		e.log.Error("Failed to publish run result", zap.String("run_id", p.RunID), zap.Error(err))
 	}
 	e.patchRunStatus(p.RunID, finalStatus)
@@ -275,8 +333,7 @@ func parseDAG(definition map[string]any) (map[string]node, map[string]int, map[s
 func interpolateVars(input string, varCtx map[string]string) string {
 	for k, v := range varCtx {
 		pattern := "{{" + k + "}}"
-		input = bytes.NewBufferString(input).String() // simple replace
-		input = string(bytes.ReplaceAll([]byte(input), []byte(pattern), []byte(v)))
+		input = strings.ReplaceAll(input, pattern, v)
 	}
 	return input
 }
@@ -315,15 +372,19 @@ func getJSONPath(data any, path string) string {
 	if path == "" || data == nil {
 		return ""
 	}
-	m, ok := data.(map[string]any)
-	if !ok {
-		return ""
+	parts := strings.Split(path, ".")
+	current := data
+	for _, part := range parts {
+		m, ok := current.(map[string]any)
+		if !ok {
+			return ""
+		}
+		current, ok = m[part]
+		if !ok {
+			return ""
+		}
 	}
-	val, exists := m[path]
-	if !exists {
-		return ""
-	}
-	return fmt.Sprintf("%v", val)
+	return fmt.Sprintf("%v", current)
 }
 
 func (e *WorkflowExecutor) executeRequestNode(ctx context.Context, n node, varCtx map[string]string) nodeResult {
