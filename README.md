@@ -18,23 +18,23 @@
 
 ---
 
-## 📽 Preview
+##  Preview
 
 ![Endpointr Demo](asset/endpointr_asset.gif)
 
 ---
 
-## ✨ Features
+##  Features
 
-- **🚀 Interactive Request Builder**: Compose and execute HTTP requests with custom headers, path/query variables, raw JSON, and auth options.
-- **⚡ DAG Workflow Engine**: Build multi-step API test pipelines visually using React Flow DAGs. Automatically extract variables from responses, delay execution, evaluate conditions, and chain dependent requests.
-- **📊 Real-Time Observability**: Stream live execution status, node metrics, latency, assertion results, and raw response previews over NATS JetStream & WebSockets.
-- **🔥 Performance & Load Testing**: Run multi-mode performance tests (load, stress, rate limit, fuzz) powered by a high-throughput Go execution engine.
-- **📈 Health & Monitoring**: Track 30-day uptime heatmaps, probe incidents, and timeseries metrics stored in TimescaleDB.
+- ** Interactive Request Builder**: Compose and execute HTTP requests with custom headers, path/query variables, raw JSON, and auth options.
+- ** DAG Workflow Engine**: Build multi-step API test pipelines visually using React Flow DAGs. Automatically extract variables from responses, delay execution, evaluate conditions, and chain dependent requests.
+- ** Real-Time Observability**: Stream live execution status, node metrics, latency, assertion results, and raw response previews over NATS JetStream & WebSockets.
+- ** Performance & Load Testing**: Run multi-mode performance tests (load, stress, rate limit, fuzz) powered by a high-throughput Go execution engine.
+- ** Health & Monitoring**: Track 30-day uptime heatmaps, probe incidents, and timeseries metrics stored in TimescaleDB.
 
 ---
 
-## 🚀 Quick Start with Docker
+## Quick Start with Docker
 
 The easiest way to run Endpointr is using Docker Compose, which spins up the full stack (Control Plane, Execution Engine, Metrics Engine, NATS, Redis, Postgres, TimescaleDB, and Frontend).
 
@@ -67,7 +67,7 @@ docker compose down
 
 ---
 
-## 🏗 Architecture
+## Architecture
 
 Endpointr uses an event-driven microservices architecture:
 
@@ -88,7 +88,7 @@ Django (Daphne) ──NATS publish──▶ execution-service (Go)
 
 ---
 
-## 🛠 Tech Stack
+##  Tech Stack
 
 | Layer | Technology | Description |
 |---|---|---|
@@ -101,7 +101,3 @@ Django (Daphne) ──NATS publish──▶ execution-service (Go)
 | **Databases** | PostgreSQL 16 & TimescaleDB | Relational metadata storage and time-series metrics hypertable |
 
 ---
-
-## 📜 License
-
-Distributed under the MIT License. See `LICENSE` for more information.
