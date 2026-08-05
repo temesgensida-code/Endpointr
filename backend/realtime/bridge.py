@@ -27,26 +27,31 @@ SUBJECTS = [
     "results.metric",  # sampled — bridge throttles to 1 per second per run_id
 ]
 
-# Throttle: only forward 1 metric event per (run_id, second) to avoid
-# flooding the Channels layer at 10k VU throughput.
+# Throttle: for perf tests, forward 1 metric event per (run_id+node_id, second)
+# to avoid flooding the Channels layer at 10k VU throughput.
+# For workflow DAG nodes each node has a unique node_id so every node event passes.
 _LAST_METRIC: dict = {}
 
 
 def _throttle_metric(payload: dict) -> bool:
     """Return True if this metric event should be forwarded."""
     run_id = payload.get("run_id", "")
+    # Use node_id if present (workflow DAG) so each node gets its own slot
+    node_id = payload.get("node_id", "")
     now_bucket = int(asyncio.get_event_loop().time())
-    key = f"{run_id}:{now_bucket}"
+    key = f"{run_id}:{node_id}:{now_bucket}"
     if key in _LAST_METRIC:
         return False
     _LAST_METRIC[key] = True
-    # Prune old entries
+    # Prune entries older than 5 seconds
+    cutoff = now_bucket - 5
     for k in list(_LAST_METRIC):
-        if not k.startswith(f"{run_id}:"):
-            continue
-        ts = int(k.split(":")[-1])
-        if now_bucket - ts > 5:
-            del _LAST_METRIC[k]
+        try:
+            ts = int(k.rsplit(":", 1)[-1])
+            if ts < cutoff:
+                del _LAST_METRIC[k]
+        except (ValueError, KeyError):
+            pass
     return True
 
 
@@ -95,10 +100,13 @@ async def run_bridge(nats_url: str, channel_layer):
 
         groups = _group_for_subject(msg.subject, payload)
         for group in groups:
-            await channel_layer.group_send(
-                group,
-                {"type": "live.event", "payload": payload},
-            )
+            try:
+                await channel_layer.group_send(
+                    group,
+                    {"type": "live.event", "payload": payload},
+                )
+            except Exception as exc:
+                logger.warning("Failed to forward event to group %s: %s", group, exc)
 
     for subject in SUBJECTS:
         await nc.subscribe(subject, cb=_handle)
