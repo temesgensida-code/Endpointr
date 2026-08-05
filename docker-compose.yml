@@ -61,7 +61,6 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-      network: host
     restart: unless-stopped
     depends_on:
       - postgres
@@ -89,7 +88,6 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-      network: host
     restart: unless-stopped
     depends_on:
       - django
@@ -108,7 +106,6 @@ services:
     build:
       context: ./services/execution-service
       dockerfile: Dockerfile
-      network: host
     restart: unless-stopped
     depends_on:
       - nats
@@ -121,7 +118,6 @@ services:
     build:
       context: ./services/metrics-service
       dockerfile: Dockerfile
-      network: host
     restart: unless-stopped
     depends_on:
       - nats
@@ -136,7 +132,6 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      network: host
     restart: unless-stopped
     depends_on:
       - django
